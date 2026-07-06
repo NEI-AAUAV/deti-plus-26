@@ -24,7 +24,7 @@ export function Hero() {
         </p>
 
         <p className="max-w-lg text-base leading-relaxed text-muted-foreground md:text-lg">
-          Born from the collaboration of DETI's student associations, DETI+ aims to strengthen the connection between students and the corporate world. Over three days, you will have the opportunity to directly contact leading engineering, technology, and innovation companies, explore internships and job offers, and bridge the gap between academic training and the job market.
+          Born from the collaboration of DETI&apos;s student associations, DETI+ aims to strengthen the connection between students and the corporate world. Over three days, you will have the opportunity to directly contact leading engineering, technology, and innovation companies, explore internships and job offers, and bridge the gap between academic training and the job market.
         </p>
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-10">
