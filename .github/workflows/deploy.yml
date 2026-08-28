@@ -1,6 +1,12 @@
-name: Deploy Next.js site to Pages
+name: Deploy to GitHub Pages
 
+# Runs only after CI succeeds on main, so a lint/type/build failure can never publish.
+# Can also be triggered by hand from the Actions tab.
 on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: ["main"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -14,37 +20,31 @@ concurrency:
 
 jobs:
   build:
+    # workflow_run fires on failure too; only publish green runs.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: 'pnpm'
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
-
-      - name: Type check
-        run: pnpm tsc --noEmit
-
-      - name: Build with Next.js
-        run: pnpm next build
+      - name: Build static export
+        run: pnpm build
 
       - name: Bypass Jekyll processing
         run: touch ./out/.nojekyll
 
-      - name: Sanity Check - List exported files
-        run: ls -la ./out
-        
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

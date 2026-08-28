@@ -2,4 +2,7 @@ node_modules
 .next
 out
 .git
+.github
 .env*.local
+test-results
+playwright-report

@@ -1,29 +1,26 @@
-# Stage 1: Build the static files
-FROM node:20-alpine AS builder
+# Stage 1: build the static export
+FROM node:22-alpine AS builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy package.json and lock files
-COPY package.json pnpm-lock.yaml* package-lock.json* yarn.lock* ./
+# corepack pins pnpm from package.json's "packageManager" field, so the image
+# and CI always install with the same pnpm version.
+RUN corepack enable
 
-# Install dependencies (using pnpm as seen in your files)
-RUN npm install -g pnpm && pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
 
-# Copy the rest of the application code
 COPY . .
+RUN pnpm build
 
-# Build the Next.js application
-RUN pnpm run build
-
-# Stage 2: Serve the static files with Nginx
+# Stage 2: serve the static files with Nginx
 FROM nginx:alpine AS runner
 
-# Copy the static export from the builder stage to Nginx's default public folder
-COPY --from=builder /app/out /usr/share/nginx/html
+# The export is built with basePath "/deti-plus-26" (GitHub Pages project
+# site), so it must be served from that same subpath here or every asset 404s.
+COPY --from=builder /app/out /usr/share/nginx/html/deti-plus-26
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expose port 80 to the outside world
 EXPOSE 80
 
-# Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
