@@ -13,7 +13,7 @@ export default function Page() {
     <>
       <BackgroundDecorations />
       <Navbar />
-      <main className="relative z-10">
+      <main id="main" tabIndex={-1} className="relative z-10">
         <Hero />
         <Countdown />
         <Associations />

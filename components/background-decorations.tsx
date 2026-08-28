@@ -378,10 +378,14 @@ export function BackgroundDecorations() {
         <div className="h-full w-full rounded-[40%_60%_30%_70%/60%_40%_60%_40%] bg-gradient-to-r from-primary to-accent blur-3xl" />
       </div>
 
+      {/* Hidden below md: at phone widths these overlap the hero copy and hurt
+          readability far more than they add atmosphere. */}
       {items.map((item) => (
         <div
           key={item.id}
-          className={`absolute ${item.size} ${mounted ? item.animClass : ""}`}
+          className={`absolute hidden md:block ${item.size} ${
+            mounted ? item.animClass : ""
+          }`}
           style={{
             left: `${item.startX}%`,
             top: `${item.startY}%`,

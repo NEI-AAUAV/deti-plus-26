@@ -19,7 +19,7 @@ export function Footer() {
           <div className="h-3 w-px bg-accent/40" />
           <span>NEECT</span>
         </div>
-        <p className="text-xs text-muted-foreground/60">
+        <p className="text-xs text-muted-foreground">
           &copy; {new Date().getFullYear()} deti+. All rights reserved.
         </p>
       </div>

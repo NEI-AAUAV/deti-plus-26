@@ -1,0 +1,5 @@
+# Build scripts are opt-in. These two ship native binaries that pnpm 11 refuses
+# to build silently: sharp (pulled in by Next) and unrs-resolver (eslint).
+onlyBuiltDependencies:
+  - sharp
+  - unrs-resolver

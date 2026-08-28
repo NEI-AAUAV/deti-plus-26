@@ -1,12 +1,25 @@
-# v0 runtime files (should only exist in preview, not in git)
-__v0_runtime_loader.js
-__v0_devtools.tsx
-__v0_jsx-dev-runtime.ts
-instrumentation-client.js
-instrumentation-client.ts
-
-# Common ignores
+# Dependencies
 node_modules/
+
+# Build output
 .next/
+out/
+*.tsbuildinfo
+
+# Test output
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Environment
 .env*.local
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
 .DS_Store
+
+# Lighthouse CI
+.lighthouseci/
