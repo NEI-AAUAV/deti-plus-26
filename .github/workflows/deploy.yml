@@ -41,6 +41,8 @@ jobs:
 
       - name: Build static export
         run: pnpm build
+        env:
+          NEXT_PUBLIC_SCRIPT_URL: ${{ vars.NEXT_PUBLIC_SCRIPT_URL }}
 
       - name: Bypass Jekyll processing
         run: touch ./out/.nojekyll

@@ -22,10 +22,16 @@ test("hero renders the headline", async ({ page }) => {
 test("every navigation anchor resolves to an existing section", async ({
   page,
 }) => {
+  // Nav links are absolute ("/deti-plus-26/#about") so they also work from
+  // sub-pages such as /registration/; only the hash identifies the section.
   const hrefs = await page
-    .locator("nav a[href^='#']")
+    .locator("nav a[href*='#']")
     .evaluateAll((links) => [
-      ...new Set(links.map((l) => l.getAttribute("href"))),
+      ...new Set(
+        links
+          .map((l) => l.getAttribute("href")?.slice(l.getAttribute("href")!.indexOf("#")))
+          .filter((h): h is string => Boolean(h) && h !== "#"),
+      ),
     ]);
 
   expect(hrefs.length).toBeGreaterThan(0);

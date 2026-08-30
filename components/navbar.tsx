@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+
 import { PixelCross } from "./pixel-elements";
 
 const links = [
@@ -30,24 +32,32 @@ export function Navbar() {
         className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/90 backdrop-blur-sm"
       >
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <a href="#about" className="flex items-center gap-2" aria-label="deti+ home">
+          <Link href="/" className="flex items-center gap-2" aria-label="deti+ home">
             <span className="font-display text-2xl lowercase tracking-wide text-primary">
               deti
             </span>
             <span className="font-display text-2xl text-accent">+</span>
-          </a>
+          </Link>
 
           <ul className="hidden items-center gap-6 md:flex lg:gap-8">
             {links.map((l) => (
               <li key={l.href}>
-                <a
-                  href={l.href}
+                <Link
+                  href={`/${l.href}`}
                   className="font-sans text-sm uppercase tracking-widest text-muted-foreground transition-colors hover:text-primary"
                 >
                   {l.label}
-                </a>
+                </Link>
               </li>
             ))}
+            <li>
+              <Link
+                href="/registration/"
+                className="inline-flex items-center border-2 border-accent bg-accent px-4 py-2 font-sans text-sm uppercase tracking-widest text-background transition-colors hover:bg-transparent hover:text-accent"
+              >
+                Register
+              </Link>
+            </li>
           </ul>
 
           <button
@@ -83,15 +93,24 @@ export function Navbar() {
             <ul className="flex flex-col gap-4 border-t border-border px-6 py-6">
               {links.map((l) => (
                 <li key={l.href}>
-                  <a
-                    href={l.href}
+                  <Link
+                    href={`/${l.href}`}
                     onClick={() => setOpen(false)}
                     className="font-sans text-sm uppercase tracking-widest text-muted-foreground transition-colors hover:text-primary"
                   >
                     {l.label}
-                  </a>
+                  </Link>
                 </li>
               ))}
+              <li>
+                <Link
+                  href="/registration/"
+                  onClick={() => setOpen(false)}
+                  className="inline-flex items-center border-2 border-accent bg-accent px-4 py-2 font-sans text-sm uppercase tracking-widest text-background"
+                >
+                  Register
+                </Link>
+              </li>
             </ul>
           </div>
         </div>

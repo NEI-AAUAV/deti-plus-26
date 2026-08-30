@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function Hero() {
   return (
     <section
@@ -33,6 +35,13 @@ export function Hero() {
         <p className="max-w-lg text-base leading-relaxed text-muted-foreground md:text-lg">
           Born from the collaboration of DETI&apos;s student associations, DETI+ aims to strengthen the connection between students and the corporate world. Over three days, you will have the opportunity to directly contact leading engineering, technology, and innovation companies, explore internships and job offers, and bridge the gap between academic training and the job market.
         </p>
+
+        <Link
+          href="/registration/"
+          className="inline-flex items-center border-2 border-accent bg-accent px-8 py-4 font-display text-lg uppercase tracking-widest text-background transition-colors hover:bg-transparent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-xl"
+        >
+          Register now
+        </Link>
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-10">
           <div className="flex items-center gap-4">
