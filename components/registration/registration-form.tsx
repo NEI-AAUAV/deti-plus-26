@@ -36,7 +36,7 @@ export function RegistrationForm() {
   const [fields, setFields] = React.useState<RegistrationFields>(EMPTY_REGISTRATION);
   const [errors, setErrors] = React.useState<FieldErrors>({});
   const [status, setStatus] = React.useState<Status>({ kind: "idle" });
-  const honeypot = React.useRef(' ');
+  const honeypot = React.useRef('');
   const errorSummary = React.useRef<HTMLDivElement>(null);
 
   function update<K extends keyof RegistrationFields>(key: K, value: RegistrationFields[K]) {
