@@ -27,7 +27,7 @@ function doPost(e) {
 
     switch (action) {
       case 'register': return json_(handleRegister_(body));
-      case 'status':   return json_(handleStatus_(body));
+      case 'fetch_status': return json_(handleStatus_(body));
       case 'upload':   return json_(handleUpload_(body));
       case 'resend':   return json_(handleResend_(body));
       default:         return json_(fail_('unknown_action', 'Unknown action.'));
