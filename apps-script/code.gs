@@ -1,12 +1,12 @@
 /**
  * DETI+ 2026 - enrollment backend
- * 
+ *
  */
 
 const SHEET_NAME = 'Registration';
 
 const HEADERS = [
-  'timestamp', 'token', 'name', 'email', 'mobileNumber', 'curse', 'year', 
+  'timestamp', 'token', 'name', 'email', 'mobileNumber', 'curse', 'year',
   'hasCvConsent', 'hasGdprConsent', 'cvFileId', 'cvName', 'cvUpdatedAt', 'state',
 ];
 
@@ -16,9 +16,9 @@ const RATE_LIMIT_WINDOW_SECONDS = 600;
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const LOCK_TIMEOUT_MS = 20000;
 
-const YEARS = ['1', '2', '3', '4', '5', 'Master', 'PhD', 'Other'];
+const YEARS = ['1', '2', '3', '4', '5','PhD', 'Other'];
 
-// entrypoints 
+// entrypoints
 
 function doPost(e) {
   try {
@@ -130,7 +130,7 @@ function handleUpload_(body) {
     const blob = Utilities.newBlob(bytes, ALLOWED_MIME, safeName);
     const folder = DriveApp.getFolderById(prop_('CV_FOLDER_ID'));
 
-    // 
+    //
     if (record.cvFileId) {
       try {
         DriveApp.getFileById(record.cvFileId).setTrashed(true);
@@ -175,7 +175,7 @@ function handleResend_(body) {
 
 function sendMagicLink_(record, opts) {
   const link = cvLink_(record.token);
-  const intro = opts && opts.returning 
+  const intro = opts && opts.returning
   ? 'Here is your personal link again to submit or replace your CV.'
   : 'Your registration for DETI+ is confirmed.';
 
@@ -190,12 +190,12 @@ function sendCvConfirmation_(record, filename) {
   const intro = 'We have received your CV (' + filename + '). You can replace it at any time ' + 'using the same link.';
   const link = cvLink_(record.token);
 
-  GmailApp.sendEmail(record.email, 'DETI+ - CV recevied', 
+  GmailApp.sendEmail(record.email, 'DETI+ - CV recevied',
   textEmail_(intro, link), {
     name: 'DETI+',
     replyTo: prop_('EVENT_EMAIL'),
     htmlBody: htmlEmail_(record.name, intro, link),
-  }); 
+  });
 }
 
 function cvLink_(token) {
@@ -402,4 +402,3 @@ function doGet() {
 }
 
 
-  
