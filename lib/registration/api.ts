@@ -20,9 +20,15 @@ export type RegisterPayload = {
   hasCvConsent: boolean;
   hasGdprConsent: boolean;
   website?: string;
+  cv?: { filename: string; mime: string; data: string };
 };
 
-export type RegisterResult = { registered: true; alreadyRegistered: boolean };
+export type RegisterResult = {
+  registered: true;
+  alreadyRegistered: boolean;
+  cvUploaded: boolean;
+  magicLinkSent: boolean;
+};
 
 export type StatusResult = {
   name: string;
@@ -32,7 +38,9 @@ export type StatusResult = {
   cvUpdatedAt: string;
 };
 
-export type UploadResult = { uploaded: true; cvName: string; cvUpdatedAt: string};
+export type CvFileResult = { filename: string; data: string };
+
+export type UploadResult = { uploaded: true; cvName: string; cvUpdatedAt: string };
 
 const SCRIPT_URL = process.env.NEXT_PUBLIC_SCRIPT_URL ?? '';
 
@@ -76,6 +84,10 @@ export function fetchStatus(token: string): Promise<ApiResult<StatusResult>> {
   return post<StatusResult>({action: 'fetch_status', token});
 }
 
+export function fetchCv(token: string): Promise<ApiResult<CvFileResult>> {
+  return post<CvFileResult>({action: 'fetch_cv', token});
+}
+
 export function uploadCv(args: {
   token: string;
   filename: string;
@@ -88,4 +100,3 @@ export function uploadCv(args: {
 export function resendLink(email: string): Promise<ApiResult<{sent: true}>> {
   return post<{sent: true}>({action: 'resend', email});
 }
-

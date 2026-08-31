@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { CvTokenGate } from "@/components/registration/cv-token-gate";
+import { BackgroundDecorations } from "@/components/background-decorations";
 
 export const metadata: Metadata = {
   title: "Submit your CV — DETI+ 2026",
@@ -17,6 +18,7 @@ export const metadata: Metadata = {
 export default function CvPage() {
   return (
     <>
+      <BackgroundDecorations />
       <Navbar />
       <main id="main" tabIndex={-1} className="relative z-10">
         <section

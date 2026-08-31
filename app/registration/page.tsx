@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { RegistrationForm } from "@/components/registration/registration-form";
+import { BackgroundDecorations } from "@/components/background-decorations";
 
 const TITLE = "Registration — DETI+";
 const DESCRIPTION =
@@ -27,6 +28,7 @@ export const metadata: Metadata = {
 export default function RegistrationPage() {
   return (
     <>
+      <BackgroundDecorations />
       <Navbar />
       <main id="main" tabIndex={-1} className="relative z-10">
         <section

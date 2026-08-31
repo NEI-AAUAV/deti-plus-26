@@ -28,6 +28,7 @@ function doPost(e) {
     switch (action) {
       case 'register': return json_(handleRegister_(body));
       case 'fetch_status': return json_(handleStatus_(body));
+      case 'fetch_cv': return json_(handleCv_(body));
       case 'upload':   return json_(handleUpload_(body));
       case 'resend':   return json_(handleResend_(body));
       default:         return json_(fail_('unknown_action', 'Unknown action.'));
@@ -48,6 +49,11 @@ function handleRegister_(body) {
   const data = normalizeRegistration_(body);
   const invalid = validateRegistration_(data);
   if (invalid) return fail_('invalid', invalid);
+  if (body.cv && body.cv.data && body.hasCvConsent !== true) {
+    return fail_('invalid', 'You must authorize sharing your CV when submitting it.');
+  }
+  const cvProblem = body.cv && body.cv.data ? validateCvPayload_(body.cv) : '';
+  if (cvProblem) return fail_('invalid_file', cvProblem);
 
   if (isRateLimited_('reg:' + data.email)) {
     return fail_('rate_limited', 'Too many attempts. Try again in a few minutes.');
@@ -61,8 +67,12 @@ function handleRegister_(body) {
 
     // Email already registered: resends the link instead of creating a duplicate.
     if (existing) {
-      sendMagicLink_(existing.record, { returning: true });
-      return ok_({ registered: true, alreadyRegistered: true });
+      const hasNewCv = Boolean(body.cv && body.cv.data);
+      if (hasNewCv) {
+        const uploaded = saveCv_(sheet, existing.row, existing.record, body.cv);
+      }
+      sendMagicLink_(existing.record, { returning: true, cvUploaded: hasNewCv });
+      return ok_({ registered: true, alreadyRegistered: true, cvUploaded: hasNewCv, magicLinkSent: true });
     }
 
     const token = Utilities.getUuid();
@@ -76,9 +86,16 @@ function handleRegister_(body) {
     });
 
     sheet.appendRow(HEADERS.map(function (h) { return record[h]; }));
-    sendMagicLink_(record, { returning: false });
+    if (body.cv && body.cv.data) {
+      const uploaded = saveCv_(sheet, sheet.getLastRow(), record, body.cv);
+      record.cvFileId = uploaded.cvFileId;
+      record.cvName = uploaded.cvName;
+      record.cvUpdatedAt = uploaded.cvUpdatedAt;
+      record.state = 'cv_delivered';
+    }
+    sendMagicLink_(record, { returning: false, cvUploaded: Boolean(body.cv && body.cv.data) });
 
-    return ok_({ registered: true, alreadyRegistered: false });
+    return ok_({ registered: true, alreadyRegistered: false, cvUploaded: Boolean(body.cv && body.cv.data), magicLinkSent: true });
   } finally {
     lock.releaseLock();
   }
@@ -89,13 +106,27 @@ function handleStatus_(body) {
   if (!found) return fail_('invalid_token', 'Invalid or expired link.');
 
   const r = found.record;
-  return ok_({
+  const result = {
     name: r.name,
     email: maskEmail_(r.email),
     hasCv: Boolean(r.cvFileId),
     cvName: r.cvName || '',
     cvUpdatedAt: r.cvUpdatedAt ? new Date(r.cvUpdatedAt).toISOString() : '',
-  });
+  };
+  return ok_(result);
+}
+
+function handleCv_(body) {
+  const found = findRowByToken_(getSheet_(), body.token);
+  if (!found) return fail_('invalid_token', 'Invalid or expired link.');
+  if (!found.record.cvFileId) return fail_('invalid_file', 'There is no CV associated with this registration.');
+  try {
+    const file = DriveApp.getFileById(found.record.cvFileId);
+    return ok_({ filename: found.record.cvName || file.getName(), data: Utilities.base64Encode(file.getBlob().getBytes()) });
+  } catch (err) {
+    console.warn('CV retrieval failed: ' + err);
+    return fail_('server_error', 'The CV could not be retrieved. Try again later.');
+  }
 }
 
 function handleUpload_(body) {
@@ -126,35 +157,45 @@ function handleUpload_(body) {
     }
 
     const record = found.record;
-    const safeName = buildCvFilename_(record.name);
-    const blob = Utilities.newBlob(bytes, ALLOWED_MIME, safeName);
-    const folder = DriveApp.getFolderById(prop_('CV_FOLDER_ID'));
-
-    //
-    if (record.cvFileId) {
-      try {
-        DriveApp.getFileById(record.cvFileId).setTrashed(true);
-      } catch (err) {
-        console.warn('Previous CV not removed: ' + err);
-      }
-    }
-
-    const file = folder.createFile(blob);
-    const now = new Date();
-
-    setCells_(sheet, found.row, {
-      cvFileId: file.getId(),
-      cvName: safeName,
-      cvUpdatedAt: now,
-      state: 'cv_delivered',
-    });
+    const uploaded = saveCv_(sheet, found.row, record, { filename: body.filename, mime: mime, bytes: bytes });
+    const safeName = uploaded.cvName;
 
     sendCvConfirmation_(record, safeName);
 
-    return ok_({ uploaded: true, cvName: safeName, cvUpdatedAt: now.toISOString() });
+    return ok_({ uploaded: true, cvName: safeName, cvUpdatedAt: uploaded.cvUpdatedAt });
   } finally {
     lock.releaseLock();
   }
+}
+
+function saveCv_(sheet, row, record, input) {
+  if (input.mime && input.mime !== ALLOWED_MIME) throw new Error('Invalid CV type');
+  let bytes = input.bytes;
+  if (!bytes) {
+    bytes = Utilities.base64Decode(String(input.data || ''));
+    if (!bytes.length || bytes.length > MAX_CV_BYTES || !isPdf_(bytes)) throw new Error('Invalid CV');
+  }
+  const safeName = buildCvFilename_(record.name);
+  const folder = DriveApp.getFolderById(prop_('CV_FOLDER_ID'));
+  if (record.cvFileId) {
+    try { DriveApp.getFileById(record.cvFileId).setTrashed(true); }
+    catch (err) { console.warn('Previous CV not removed: ' + err); }
+  }
+  const file = folder.createFile(Utilities.newBlob(bytes, ALLOWED_MIME, safeName));
+  const now = new Date();
+  setCells_(sheet, row, { cvFileId: file.getId(), cvName: safeName, cvUpdatedAt: now, state: 'cv_delivered' });
+  return { cvFileId: file.getId(), cvName: safeName, cvUpdatedAt: now.toISOString() };
+}
+
+function validateCvPayload_(input) {
+  if (String(input.mime || '') !== ALLOWED_MIME) return 'The CV must be a PDF file.';
+  let bytes;
+  try { bytes = Utilities.base64Decode(String(input.data || '')); }
+  catch (err) { return 'The file could not be read.'; }
+  if (!bytes.length) return 'The file is empty.';
+  if (bytes.length > MAX_CV_BYTES) return 'The CV must not exceed 5 MB.';
+  if (!isPdf_(bytes)) return 'The file is not a valid PDF.';
+  return '';
 }
 
 function handleResend_(body) {
@@ -175,9 +216,14 @@ function handleResend_(body) {
 
 function sendMagicLink_(record, opts) {
   const link = cvLink_(record.token);
+  const cvUploaded = Boolean(opts && opts.cvUploaded);
   const intro = opts && opts.returning
-  ? 'Here is your personal link again to submit or replace your CV.'
-  : 'Your registration for DETI+ is confirmed.';
+    ? (cvUploaded
+      ? 'Your CV was received and your registration is already active. Here is your personal link to view or replace it.'
+      : 'Here is your personal link again to submit, view or replace your CV.')
+    : (cvUploaded
+      ? 'Your registration for DETI+ is confirmed and your CV was received. Use this personal link to view or replace it.'
+      : 'Your registration for DETI+ is confirmed. Use this personal link to submit, view or replace your CV.');
 
   GmailApp.sendEmail(record.email, 'DETI+ 2026 — your registration', textEmail_(intro, link), {
     name: 'DETI+',
@@ -190,7 +236,7 @@ function sendCvConfirmation_(record, filename) {
   const intro = 'We have received your CV (' + filename + '). You can replace it at any time ' + 'using the same link.';
   const link = cvLink_(record.token);
 
-  GmailApp.sendEmail(record.email, 'DETI+ - CV recevied',
+  GmailApp.sendEmail(record.email, 'DETI+ — CV received',
   textEmail_(intro, link), {
     name: 'DETI+',
     replyTo: prop_('EVENT_EMAIL'),
@@ -400,5 +446,3 @@ function escapeHtml_(value) {
 function doGet() {
   return json_({ ok: true, service: 'deti-plus-26-registration' });
 }
-
-

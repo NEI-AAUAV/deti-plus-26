@@ -39,7 +39,7 @@ test.describe("registration form", () => {
 
   test("submits the filled fields and confirms", async ({ page }) => {
     const calls = await stubScript(page, {
-      body: { ok: true, registered: true, alreadyRegistered: false },
+      body: { ok: true, registered: true, alreadyRegistered: false, cvUploaded: false, magicLinkSent: true },
     });
 
     await fillValidForm(page);
@@ -84,13 +84,45 @@ test.describe("registration form", () => {
 
   test("treats an already registered email as success", async ({ page }) => {
     await stubScript(page, {
-      body: { ok: true, registered: true, alreadyRegistered: true },
+      body: { ok: true, registered: true, alreadyRegistered: true, cvUploaded: false, magicLinkSent: true },
     });
 
     await fillValidForm(page);
     await page.getByRole("button", { name: /confirm registration/i }).click();
 
-    await expect(page.getByText(/already registered/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Already Registered" })).toBeVisible();
+  });
+
+  test("requires CV-sharing consent when a CV is selected", async ({ page }) => {
+    const calls = await stubScript(page, { body: { ok: true } });
+    await fillValidForm(page);
+    await page.locator("#cv").setInputFiles({
+      name: "cv.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\nstub\n%%EOF\n"),
+    });
+    await page.getByRole("button", { name: /confirm registration/i }).click();
+
+    await expect(page.getByText(/authorize sharing your cv/i)).toBeVisible();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("sends the selected CV with a registration", async ({ page }) => {
+    const calls = await stubScript(page, {
+      body: { ok: true, registered: true, alreadyRegistered: false, cvUploaded: true, magicLinkSent: true },
+    });
+    await fillValidForm(page);
+    await page.locator("#cv").setInputFiles({
+      name: "cv.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\nstub\n%%EOF\n"),
+    });
+    await expect(page.getByTitle(/preview before submission/i)).toBeVisible();
+    await page.getByRole("checkbox", { name: /authorize the sharing/i }).check();
+    await page.getByRole("button", { name: /confirm registration/i }).click();
+
+    await expect(page.getByText(/your cv was received successfully/i)).toBeVisible();
+    expect(calls[0]).toMatchObject({ cv: { filename: "cv.pdf", mime: "application/pdf" } });
   });
 });
 
@@ -130,7 +162,7 @@ test.describe("cv upload", () => {
       calls.push(payload);
 
       const body =
-        payload.action === "status"
+        payload.action === "fetch_status"
           ? {
               ok: true,
               name: "Ana Silva",
@@ -196,5 +228,24 @@ test.describe("cv upload", () => {
     });
 
     await expect(page.getByText(/must be a pdf/i)).toBeVisible();
+  });
+
+  test("loads a full-width preview only when requested", async ({ page }) => {
+    const calls: unknown[] = [];
+    const pdf = Buffer.from("%PDF-1.4\nstub\n%%EOF\n").toString("base64");
+    await page.route(SCRIPT_HOST, async (route) => {
+      const payload = JSON.parse(route.request().postData() ?? "{}");
+      calls.push(payload);
+      const body = payload.action === "fetch_status"
+        ? { ok: true, name: "Ana Silva", email: "an***@ua.pt", hasCv: true, cvName: "cv.pdf", cvUpdatedAt: "2026-05-01T10:15:00.000Z" }
+        : { ok: true, filename: "cv.pdf", data: pdf };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    });
+
+    await page.goto("registration/cv/index.html?t=token-123");
+    await expect(page.getByTitle("CV preview")).toHaveCount(0);
+    await page.getByRole("button", { name: /preview cv/i }).click();
+    await expect(page.getByTitle("CV preview")).toBeVisible();
+    expect(calls).toContainEqual(expect.objectContaining({ action: "fetch_cv", token: "token-123" }));
   });
 });

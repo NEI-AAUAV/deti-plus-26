@@ -1,11 +1,11 @@
 'use client'
 
 import * as React from 'react'
-import { CheckCircle2, FileText, Loader2, Upload } from 'lucide-react'
+import { CheckCircle2, Download, Eye, FileText, Loader2, Upload } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { fetchStatus, uploadCv, type StatusResult } from '@/lib/registration/api'
-import { fileToBase64 } from '@/lib/registration/file'
+import { fetchCv, fetchStatus, uploadCv, type StatusResult } from '@/lib/registration/api'
+import { base64ToPdfUrl, fileToBase64 } from '@/lib/registration/file'
 import { ALLOWED_CV_MIME, formatBytes, validateCvFile } from '@/lib/registration/validation'
 
 type LoadState =
@@ -19,11 +19,18 @@ type UploadState =
   | { kind: 'error'; message: string }
   | { kind: 'done' }
 
+type DocumentState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; url: string; filename: string }
+  | { kind: 'error'; message: string }
+
 export function CvUpload({ token }: { token: string }) {
   const [load, setLoad] = React.useState<LoadState>({ kind: 'loading' })
   const [upload, setUpload] = React.useState<UploadState>({ kind: 'idle' })
   const [file, setFile] = React.useState<File | null>(null)
   const [dragging, setDragging] = React.useState(false)
+  const [document, setDocument] = React.useState<DocumentState>({ kind: 'idle' })
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
@@ -47,6 +54,33 @@ export function CvUpload({ token }: { token: string }) {
       cancelled = true
     }
   }, [token])
+
+  React.useEffect(() => () => {
+    if (document.kind === 'ready') URL.revokeObjectURL(document.url)
+  }, [document])
+
+  async function loadDocument() {
+    if (document.kind === 'ready') return document
+    setDocument({ kind: 'loading' })
+    const result = await fetchCv(token)
+    if (!result.ok) {
+      setDocument({ kind: 'error', message: result.message })
+      return null
+    }
+    const url = base64ToPdfUrl(result.data)
+    const next = { kind: 'ready' as const, url, filename: result.filename }
+    setDocument(next)
+    return next
+  }
+
+  async function downloadDocument() {
+    const current = await loadDocument()
+    if (!current) return
+    const anchor = window.document.createElement('a')
+    anchor.href = current.url
+    anchor.download = current.filename
+    anchor.click()
+  }
 
   function selectFile(candidate: File | null) {
     if (!candidate) return
@@ -90,6 +124,7 @@ export function CvUpload({ token }: { token: string }) {
 
     setUpload({ kind: 'done' })
     setFile(null)
+    setDocument({ kind: 'idle' })
     // Refresh so the panel shows the CV that is now on record.
     setLoad((prev) =>
       prev.kind === 'ready'
@@ -98,8 +133,8 @@ export function CvUpload({ token }: { token: string }) {
           status: {
             ...prev.status,
             hasCv: true,
-            cvName: result.cvName,
-            cvUpdatedAt: result.cvUpdatedAt,
+                cvName: result.cvName,
+                cvUpdatedAt: result.cvUpdatedAt,
           },
         }
         : prev,
@@ -141,9 +176,10 @@ export function CvUpload({ token }: { token: string }) {
       </div>
 
       {status.hasCv ? (
-        <div className="flex items-start gap-3 rounded-lg border border-border p-4">
-          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-          <div className="space-y-1">
+        <div className="space-y-4 rounded-lg border border-border p-4">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            <div className="min-w-0 flex-1 space-y-1">
             <p className="text-sm font-medium">CV on record</p>
             <p className="break-all text-sm text-muted-foreground">{status.cvName}</p>
             {status.cvUpdatedAt ? (
@@ -154,7 +190,19 @@ export function CvUpload({ token }: { token: string }) {
             <p className="text-sm text-muted-foreground">
               Uploading a new file replaces this one.
             </p>
+            </div>
           </div>
+          <div className="flex flex-wrap gap-3">
+            <Button type="button" variant="outline" onClick={loadDocument} disabled={document.kind === 'loading'}>
+              {document.kind === 'loading' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Eye aria-hidden="true" />}
+              Preview CV
+            </Button>
+            <Button type="button" variant="outline" onClick={downloadDocument} disabled={document.kind === 'loading'}>
+              <Download aria-hidden="true" /> Download CV
+            </Button>
+          </div>
+          {document.kind === 'error' ? <p role="alert" className="text-sm text-destructive">{document.message}</p> : null}
+          {document.kind === 'ready' ? <iframe title="CV preview" src={document.url} className="h-[min(72vh,760px)] w-full border border-border bg-white" /> : null}
         </div>
       ) : null}
 

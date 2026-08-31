@@ -5,7 +5,7 @@ export const YEARS = ['1', '2', '3', '4', '5', 'PhD', 'Other'] as const;
 export const MAX_CV_BYTES = 1024 * 1024 * 5;
 export const ALLOWED_CV_MIME = 'application/pdf';
 
-export type RegistrationFields = Omit<RegisterPayload, 'website'>;
+export type RegistrationFields = Omit<RegisterPayload, 'website' | 'cv'> & { cv: File | null };
 export type FieldErrors = Partial<Record<keyof RegistrationFields, string>>;
 
 export const EMPTY_REGISTRATION: RegistrationFields = {
@@ -16,6 +16,7 @@ export const EMPTY_REGISTRATION: RegistrationFields = {
   year: '',
   hasCvConsent: false,
   hasGdprConsent: false,
+  cv: null,
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -46,6 +47,9 @@ export function validateRegistration(fields: RegistrationFields): FieldErrors {
   if (!fields.hasGdprConsent) {
     errors.hasGdprConsent = 'You must accept the data policy.';
   }
+  if (fields.cv && !fields.hasCvConsent) {
+    errors.hasCvConsent = 'You must authorize sharing your CV when submitting it.';
+  }
 
   return errors;
 }
@@ -54,7 +58,7 @@ export function hasErrors(errors: FieldErrors): boolean {
   return Object.keys(errors).length > 0;
 }
 
-export function toPayload(fields: RegistrationFields): RegistrationFields {
+export function toPayload(fields: RegistrationFields): Omit<RegistrationFields, 'cv'> {
   return {
     name: fields.name.trim(),
     email: fields.email.trim().toLowerCase(),
