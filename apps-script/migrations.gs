@@ -50,6 +50,7 @@ function migrateSystem() {
       console.log('[migration] Registration sheet does not exist. Creating it.');
       sheet = ss.insertSheet(SHEET_NAME);
       sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+      if (typeof invalidateRegistrationHeaderMapCache_ === 'function') invalidateRegistrationHeaderMapCache_();
       setSchemaVersion_(CURRENT_SCHEMA_VERSION);
       if (typeof rebuildRegistrationCounters_ === 'function') rebuildRegistrationCounters_();
 
@@ -76,6 +77,7 @@ function migrateSystem() {
     }
 
     const addedColumns = ensureMigrationColumns_(sheet);
+    if (typeof invalidateRegistrationHeaderMapCache_ === 'function') invalidateRegistrationHeaderMapCache_();
     console.log('[migration] Missing columns added: ' + addedColumns);
 
     const result = migrateRegistrationData_(sheet);

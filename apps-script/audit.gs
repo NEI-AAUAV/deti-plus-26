@@ -43,6 +43,12 @@ function getAuditSheet_() {
   return sheet;
 }
 
+function getAuditSheetFast_() {
+  const sheet = getSpreadsheet_().getSheetByName(AUDIT_SHEET_NAME);
+  if (!sheet) throw new Error('Audit Log sheet is missing; run initializeOperations.');
+  return sheet;
+}
+
 function ensureAuditSheet_(
   sheet
 ) {
@@ -232,7 +238,7 @@ function logAudit_(
 ) {
   try {
     const sheet =
-      getAuditSheet_();
+      getAuditSheetFast_();
 
     const registrationId =
       record
@@ -369,9 +375,7 @@ function appendAuditRecord_(
       }
     );
 
-  sheet.appendRow(
-    row
-  );
+  sheet.getRange(sheet.getLastRow() + 1, 1, 1, row.length).setValues([row]);
 }
 
 // -----------------------------------------------------------------------------

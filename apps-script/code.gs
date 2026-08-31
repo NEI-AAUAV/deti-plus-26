@@ -166,6 +166,9 @@ function doGet() {
 function handleRegister_(
   body
 ) {
+  const perfStartedAt = Date.now();
+  const perf = function (name, startedAt) { console.log('[perf] register ' + name + '=' + (Date.now() - startedAt) + 'ms'); };
+  let perfMark = perfStartedAt;
   /*
    * Honeypot.
    */
@@ -190,6 +193,7 @@ function handleRegister_(
     validateRegistration_(
       data
     );
+  perf('validation', perfMark); perfMark = Date.now();
 
   if (invalid) {
     return fail_(
@@ -214,7 +218,6 @@ function handleRegister_(
       'You must authorize sharing your CV when submitting it.'
     );
   }
-
   if (hasCv) {
     const cvAvailability =
       getCvAvailability_();
@@ -241,6 +244,8 @@ function handleRegister_(
     }
   }
 
+  perfMark = Date.now();
+
   if (
     isRateLimited_(
       'reg:' +
@@ -252,6 +257,7 @@ function handleRegister_(
       'Too many attempts. Try again in a few minutes.'
     );
   }
+  perf('rateLimit', perfMark); perfMark = Date.now();
 
   /*
    * Capacity decisions MUST happen inside this lock.
@@ -262,16 +268,23 @@ function handleRegister_(
   lock.waitLock(
     LOCK_TIMEOUT_MS
   );
+  perf('lockWait', perfMark); perfMark = Date.now();
 
+  let createdRecord = null;
+  let createdStatus = null;
+  let createdRow = null;
+  let cvUploaded = false;
   try {
     const sheet =
       getSheet_();
+    perf('getSheet', perfMark); perfMark = Date.now();
 
     const existing =
       findRowByEmail_(
         sheet,
         data.email
       );
+    perf('findEmail', perfMark); perfMark = Date.now();
 
     if (existing) {
       return handleExistingRegistration_(
@@ -283,7 +296,9 @@ function handleRegister_(
     }
 
     const config = getEventConfig_();
+    perf('config', perfMark); perfMark = Date.now();
     const counters = getRegistrationCounters_({ lockHeld: true });
+    perf('counters', perfMark); perfMark = Date.now();
     const availability = getRegistrationState_(config, counters);
 
     const admission =
@@ -307,6 +322,7 @@ function handleRegister_(
       createNextRegistrationId_(
         sheet
       );
+    perf('createId', perfMark); perfMark = Date.now();
 
     const registrationStatus =
       admission
@@ -392,31 +408,34 @@ function handleRegister_(
         legacyState,
     };
 
-    appendRegistration_(
-      sheet,
-      record
-    );
+    const row = appendRegistration_(sheet, record, sheet.getLastRow() + 1);
+    perf('append', perfMark); perfMark = Date.now();
 
     updateRegistrationCountersForTransition_('', registrationStatus, false, false, { lockHeld: true });
     invalidateRegistrationStatusCache_();
+    perf('counterUpdate', perfMark); perfMark = Date.now();
 
-    const row =
-      sheet.getLastRow();
+    createdRecord = record;
+    createdStatus = registrationStatus;
+    createdRow = row;
+    // The critical transaction is complete; audit, queue and optional CV work
+    // must not extend the capacity lock.
+  } finally {
+    lock.releaseLock();
+  }
 
-    let cvUploaded =
-      false;
-
+  try {
     if (hasCv) {
       const uploaded =
         saveCv_(
-          sheet,
-          row,
-          record,
+          getSheet_(),
+          createdRow,
+          createdRecord,
           body.cv
         );
 
       applyCvResultToRecord_(
-        record,
+          createdRecord,
         uploaded
       );
 
@@ -425,7 +444,7 @@ function handleRegister_(
 
       logAudit_(
         'CV_UPLOADED',
-        record,
+        createdRecord,
         'none',
         uploaded.cvStatus,
         'CV submitted with registration.',
@@ -434,19 +453,20 @@ function handleRegister_(
     }
 
     logAudit_(
-      registrationStatus ===
+      createdStatus ===
         'waitlisted'
         ? 'REGISTRATION_WAITLISTED'
         : 'REGISTRATION_CREATED',
-      record,
+      createdRecord,
       '',
-      registrationStatus,
+      createdStatus,
       'New public registration.',
       'PUBLIC'
     );
+    perf('audit', perfMark); perfMark = Date.now();
 
     sendMagicLink_(
-      record,
+      createdRecord,
       {
         returning:
           false,
@@ -455,16 +475,17 @@ function handleRegister_(
           cvUploaded,
 
         registrationStatus:
-          registrationStatus,
+          createdStatus,
       }
     );
+    perf('queueEmail', perfMark); perfMark = Date.now();
 
     return ok_({
       registered:
         true,
 
       status:
-        registrationStatus,
+        createdStatus,
 
       alreadyRegistered:
         false,
@@ -476,7 +497,8 @@ function handleRegister_(
         true,
     });
   } finally {
-    lock.releaseLock();
+    perf('cv', perfMark); perfMark = Date.now();
+    perf('total', perfStartedAt);
   }
 }
 
@@ -2047,12 +2069,10 @@ function fail_(
 function prop_(
   key
 ) {
-  const value =
-    PropertiesService
-      .getScriptProperties()
-      .getProperty(
-        key
-      );
+  if (typeof scriptPropertiesCache_ === 'undefined') scriptPropertiesCache_ = {};
+  const value = Object.prototype.hasOwnProperty.call(scriptPropertiesCache_, key)
+    ? scriptPropertiesCache_[key]
+    : (scriptPropertiesCache_[key] = PropertiesService.getScriptProperties().getProperty(key));
 
   if (!value) {
     throw new Error(

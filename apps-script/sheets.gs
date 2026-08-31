@@ -160,8 +160,15 @@ function applyDetiSheetBase_(sheet, tabColor) {
 // Spreadsheet
 // -----------------------------------------------------------------------------
 
+let registrationSpreadsheetInstance_ = null;
+let registrationSheetInstance_ = null;
+let registrationHeaderMap_ = null;
+const REGISTRATION_HEADER_MAP_CACHE_KEY = 'registration_header_map_v3';
+const NEXT_REGISTRATION_ID_PROPERTY_KEY = 'NEXT_REGISTRATION_ID';
+
 function getSpreadsheet_() {
-  return SpreadsheetApp.openById(prop_('SHEET_ID'));
+  if (!registrationSpreadsheetInstance_) registrationSpreadsheetInstance_ = SpreadsheetApp.openById(prop_('SHEET_ID'));
+  return registrationSpreadsheetInstance_;
 }
 
 // -----------------------------------------------------------------------------
@@ -169,15 +176,24 @@ function getSpreadsheet_() {
 // -----------------------------------------------------------------------------
 
 function getSheet_() {
+  if (!registrationSheetInstance_) registrationSheetInstance_ = getSpreadsheet_().getSheetByName(SHEET_NAME);
+  if (!registrationSheetInstance_) throw new Error('Registration sheet is missing; run initializeOperations or migrateSystem.');
+  return registrationSheetInstance_;
+}
+
+function ensureRegistrationSheetSchema_() {
   const ss = getSpreadsheet_();
   let sheet = ss.getSheetByName(SHEET_NAME);
-
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
-  }
-
+  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+  registrationSheetInstance_ = sheet;
   ensureRegistrationColumns_(sheet);
+  invalidateRegistrationHeaderMapCache_();
   return sheet;
+}
+
+function invalidateRegistrationHeaderMapCache_() {
+  registrationHeaderMap_ = null;
+  CacheService.getScriptCache().remove(REGISTRATION_HEADER_MAP_CACHE_KEY);
 }
 
 function ensureRegistrationColumns_(sheet) {
@@ -198,6 +214,7 @@ function ensureRegistrationColumns_(sheet) {
   });
 
   applyRegistrationDisplayHeaders_(sheet);
+  invalidateRegistrationHeaderMapCache_();
 }
 
 function applyRegistrationDisplayHeaders_(sheet) {
@@ -210,10 +227,18 @@ function applyRegistrationDisplayHeaders_(sheet) {
     return registrationDisplayLabel_(key);
   });
 
-  sheet.getRange(1, 1, 1, lastColumn).setValues([labels]);
+  const differs = values.some(function (value, index) { return String(value || '') !== labels[index]; });
+  if (differs) sheet.getRange(1, 1, 1, lastColumn).setValues([labels]);
 }
 
 function getHeaderMap_(sheet) {
+  if (sheet.getName() === SHEET_NAME && registrationHeaderMap_) return registrationHeaderMap_;
+  if (sheet.getName() === SHEET_NAME) {
+    const cached = CacheService.getScriptCache().get(REGISTRATION_HEADER_MAP_CACHE_KEY);
+    if (cached) {
+      try { return registrationHeaderMap_ = JSON.parse(cached); } catch (err) { CacheService.getScriptCache().remove(REGISTRATION_HEADER_MAP_CACHE_KEY); }
+    }
+  }
   const lastColumn = sheet.getLastColumn();
   if (lastColumn < 1) return {};
 
@@ -232,6 +257,10 @@ function getHeaderMap_(sheet) {
     map[key] = index + 1;
   });
 
+  if (sheet.getName() === SHEET_NAME) {
+    registrationHeaderMap_ = map;
+    CacheService.getScriptCache().put(REGISTRATION_HEADER_MAP_CACHE_KEY, JSON.stringify(map), 21600);
+  }
   return map;
 }
 
@@ -259,11 +288,10 @@ function readRecords_(sheet) {
   return records;
 }
 
-function appendRegistration_(sheet, record) {
-  ensureRegistrationColumns_(sheet);
-
+function appendRegistration_(sheet, record, nextRow) {
+  const map = getHeaderMap_(sheet);
   const lastColumn = sheet.getLastColumn();
-  const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0].map(canonicalHeaderKey_);
+  const headers = Array.from({ length: lastColumn }, function (_, index) { return Object.keys(map).find(function (key) { return map[key] === index + 1; }) || ''; });
 
   const row = headers.map(function (header) {
     if (!header) return '';
@@ -271,47 +299,50 @@ function appendRegistration_(sheet, record) {
     return typeof value === 'undefined' ? '' : value;
   });
 
-  sheet.appendRow(row);
-  formatRegistrationRow_(sheet, sheet.getLastRow());
+  const rowNumber = nextRow || sheet.getLastRow() + 1;
+  sheet.getRange(rowNumber, 1, 1, row.length).setValues([row]);
+  return rowNumber;
+}
+
+function readRegistrationRow_(sheet, row) {
+  const map = getHeaderMap_(sheet);
+  const values = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const record = {};
+  Object.keys(map).forEach(function (key) { record[key] = values[map[key] - 1]; });
+  return { row: row, record: record };
+}
+
+function findRowIndexByColumnValue_(sheet, canonicalKey, value, normalizer) {
+  const map = getHeaderMap_(sheet);
+  const column = map[canonicalKey];
+  const lastRow = sheet.getLastRow();
+  if (!column || lastRow < 2) return 0;
+  const target = normalizer(value);
+  const values = sheet.getRange(2, column, lastRow - 1, 1).getValues();
+  for (let i = 0; i < values.length; i++) if (normalizer(values[i][0]) === target) return i + 2;
+  return 0;
 }
 
 function findRowByToken_(sheet, token) {
   const normalizedToken = String(token || '').trim();
   if (!normalizedToken) return null;
 
-  const rows = readRecords_(sheet);
-
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i].record.token || '') === normalizedToken) return rows[i];
-  }
-
-  return null;
+  const row = findRowIndexByColumnValue_(sheet, 'token', normalizedToken, function (value) { return String(value || '').trim(); });
+  return row ? readRegistrationRow_(sheet, row) : null;
 }
 
 function findRowByEmail_(sheet, email) {
   const normalizedEmail = normalizeEmail_(email);
-  const rows = readRecords_(sheet);
-
-  for (let i = 0; i < rows.length; i++) {
-    if (normalizeEmail_(rows[i].record.email) === normalizedEmail) return rows[i];
-  }
-
-  return null;
+  const row = findRowIndexByColumnValue_(sheet, 'email', normalizedEmail, normalizeEmail_);
+  return row ? readRegistrationRow_(sheet, row) : null;
 }
 
 function findRowByRegistrationId_(sheet, registrationId) {
   const normalized = String(registrationId || '').trim().toUpperCase();
   if (!normalized) return null;
 
-  const rows = readRecords_(sheet);
-
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i].record.registrationId || '').trim().toUpperCase() === normalized) {
-      return rows[i];
-    }
-  }
-
-  return null;
+  const row = findRowIndexByColumnValue_(sheet, 'registrationId', normalized, function (value) { return String(value || '').trim().toUpperCase(); });
+  return row ? readRegistrationRow_(sheet, row) : null;
 }
 
 function setCells_(sheet, row, updates) {
@@ -363,11 +394,21 @@ function writeCellGroup_(sheet, row, group) {
 }
 
 function createNextRegistrationId_(sheet) {
-  const rows = readRecords_(sheet);
-  let highest = 0;
+  const properties = PropertiesService.getScriptProperties();
+  let next = Number(properties.getProperty(NEXT_REGISTRATION_ID_PROPERTY_KEY));
+  if (!Number.isFinite(next) || next < 1) next = rebuildNextRegistrationId_(sheet);
+  properties.setProperty(NEXT_REGISTRATION_ID_PROPERTY_KEY, String(next + 1));
+  return formatRegistrationId_(next);
+}
 
-  rows.forEach(function (entry) {
-    const id = String(entry.record.registrationId || '').trim().toUpperCase();
+function rebuildNextRegistrationId_(sheet) {
+  sheet = sheet || getSheet_();
+  const map = getHeaderMap_(sheet);
+  const lastRow = sheet.getLastRow();
+  let highest = 0;
+  if (!map.registrationId || lastRow < 2) return 1;
+  sheet.getRange(2, map.registrationId, lastRow - 1, 1).getValues().forEach(function (item) {
+    const id = String(item[0] || '').trim().toUpperCase();
     if (id.indexOf(REGISTRATION_ID_PREFIX) !== 0) return;
 
     const suffix = id.substring(REGISTRATION_ID_PREFIX.length);
@@ -375,8 +416,9 @@ function createNextRegistrationId_(sheet) {
 
     if (Number.isFinite(number) && number > highest) highest = number;
   });
-
-  return formatRegistrationId_(highest + 1);
+  const next = highest + 1;
+  PropertiesService.getScriptProperties().setProperty(NEXT_REGISTRATION_ID_PROPERTY_KEY, String(next));
+  return next;
 }
 
 // -----------------------------------------------------------------------------

@@ -86,7 +86,7 @@ const ADMIN_EDITOR_FIELDS = [
 function initializeOperations() {
   if (typeof migrateSystem === 'function') migrateSystem();
 
-  const registrationSheet = getSheet_();
+  const registrationSheet = ensureRegistrationSheetSchema_();
 
   getSettingsSheet_();
   getAuditSheet_();

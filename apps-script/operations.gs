@@ -22,6 +22,19 @@ const EMAIL_QUEUE_HEADERS = [
 function getEmailQueueSheet_() {
   const sheet = getOrCreateSheet_(EMAIL_QUEUE_SHEET_NAME);
 
+  ensureEmailQueueSheet_(sheet);
+  formatEmailQueueSheet_(sheet);
+  return sheet;
+}
+
+function getEmailQueueSheetFast_() {
+  const sheet = getSpreadsheet_().getSheetByName(EMAIL_QUEUE_SHEET_NAME);
+  if (!sheet) throw new Error('Email Queue sheet is missing; run initializeOperations.');
+  return sheet;
+}
+
+function ensureEmailQueueSheet_(sheet) {
+
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, EMAIL_QUEUE_HEADERS.length).setValues([EMAIL_QUEUE_HEADERS]);
   } else {
@@ -32,8 +45,6 @@ function getEmailQueueSheet_() {
     });
   }
 
-  formatEmailQueueSheet_(sheet);
-  return sheet;
 }
 
 function formatEmailQueueSheet_(sheet) {
@@ -77,9 +88,9 @@ function formatEmailQueueSheet_(sheet) {
 }
 
 function queueParticipantEmail_(email) {
-  const sheet = getEmailQueueSheet_();
-
-  sheet.appendRow([
+  const sheet = getEmailQueueSheetFast_();
+  const row = sheet.getLastRow() + 1;
+  sheet.getRange(row, 1, 1, EMAIL_QUEUE_HEADERS.length).setValues([[
     new Date(),
     email.sendAfter || new Date(),
     email.recipient,
@@ -93,7 +104,7 @@ function queueParticipantEmail_(email) {
     '',
     email.type || '',
     email.registrationId || '',
-  ]);
+  ]]);
 }
 
 function processEmailQueue() {
