@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Reveal } from "@/components/reveal";
+import { SectionHeading } from "@/components/section-heading";
 
 // Explicit UTC+01:00 (WEST, Portugal in May) so every visitor counts down to the
 // same instant regardless of their own timezone.
@@ -22,13 +24,13 @@ function calculateTimeLeft() {
 
 function TimeUnit({ value, label }: { value: number; label: string }) {
   return (
-    <div className="flex flex-col items-center gap-2 sm:gap-3">
-      <div className="flex h-16 w-16 items-center justify-center border border-border bg-card sm:h-28 sm:w-28">
-        <span className="font-display text-2xl text-primary sm:text-5xl">
+    <div className="group flex flex-col items-center gap-3">
+      <div className="flex h-20 w-20 items-center justify-center border border-border bg-card transition-[border-color,transform] duration-200 group-hover:-translate-y-0.5 group-hover:border-accent/40 sm:h-28 sm:w-28 lg:h-32 lg:w-32">
+        <span className="font-display text-3xl text-primary sm:text-5xl">
           {String(value).padStart(2, "0")}
         </span>
       </div>
-      <span className="font-display text-[10px] uppercase tracking-widest text-muted-foreground sm:text-xs">
+      <span className="font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:text-xs">
         {label}
       </span>
     </div>
@@ -61,26 +63,11 @@ export function Countdown() {
   return (
     <section
       id="countdown"
-      aria-labelledby="countdown-heading"
+      aria-label="Countdown"
       className="border-t border-border px-6 py-24"
     >
       <div className="mx-auto max-w-4xl text-center">
-        <div className="mb-4 flex items-center justify-center gap-2">
-          <div className="h-2 w-2 bg-accent" aria-hidden="true" />
-          <p
-            className="font-display text-sm uppercase tracking-[0.3em] text-accent"
-            suppressHydrationWarning
-          >
-            {time.isOver ? "Recap" : "Countdown"}
-          </p>
-        </div>
-        <h2
-          id="countdown-heading"
-          className="mb-12 text-balance font-display text-3xl lowercase tracking-[0.15em] text-primary sm:text-4xl"
-          suppressHydrationWarning
-        >
-          {time.isOver ? "this edition has wrapped" : "the event starts in"}
-        </h2>
+        <SectionHeading eyebrow={time.isOver ? "Recap" : "Countdown"} title={time.isOver ? "this edition has wrapped" : "the event starts in"} index="02 / 05" />
 
         {time.isOver ? (
           <p
@@ -92,10 +79,7 @@ export function Countdown() {
             the next edition will be announced here.
           </p>
         ) : (
-          <div
-            className="flex items-center justify-center gap-2 sm:gap-6"
-            suppressHydrationWarning
-          >
+          <Reveal><div className="flex items-center justify-center gap-2 sm:gap-6" suppressHydrationWarning>
             <TimeUnit value={time.days} label="Days" />
             <Colon />
             <TimeUnit value={time.hours} label="Hours" />
@@ -103,7 +87,7 @@ export function Countdown() {
             <TimeUnit value={time.minutes} label="Min" />
             <Colon />
             <TimeUnit value={time.seconds} label="Sec" />
-          </div>
+          </div></Reveal>
         )}
       </div>
     </section>

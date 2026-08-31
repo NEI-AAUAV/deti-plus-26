@@ -104,7 +104,7 @@ export function RegistrationForm() {
   const submitting = status.kind === 'submitting'
 
   return (
-    <form onSubmit={onSubmit} noValidate className="space-y-6">
+    <form onSubmit={onSubmit} noValidate className="animate-enter-up space-y-8 delay-100">
       <div
         ref={errorSummary}
         tabIndex={-1}
@@ -123,7 +123,7 @@ export function RegistrationForm() {
         ) : null}
       </div>
 
-      <Field id="name" label="Full Name" required error={errors.name}>
+      <div className="grid gap-6 sm:grid-cols-2"><div className="sm:col-span-2"><Field id="name" label="Full Name" required error={errors.name}>
         <Input
           id="name"
           name="name"
@@ -134,9 +134,9 @@ export function RegistrationForm() {
           aria-describedby={errors.name ? 'name-error' : undefined}
           disabled={submitting}
         />
-      </Field>
+      </Field></div>
 
-      <Field
+      <div className="sm:col-span-2"><Field
         id="email"
         label="Email"
         required
@@ -155,7 +155,7 @@ export function RegistrationForm() {
           aria-describedby={errors.email ? 'email-error' : 'email-hint'}
           disabled={submitting}
         />
-      </Field>
+      </Field></div>
 
       <Field id="mobileNumber" label="Mobile Number" error={errors.mobileNumber} hint="Optional.">
         <Input
@@ -172,7 +172,11 @@ export function RegistrationForm() {
         />
       </Field>
 
-      <Field id="curse" label="Course" required error={errors.curse}>
+      <Field id="year" label="Academic Year" required error={errors.year}>
+        <Select value={fields.year} onValueChange={(value) => update('year', value)} disabled={submitting}><SelectTrigger id="year" aria-invalid={Boolean(errors.year)} aria-describedby={errors.year ? 'year-error' : undefined}><SelectValue placeholder="Select the year" /></SelectTrigger><SelectContent>{YEARS.map((year) => <SelectItem key={year} value={year}>{year}</SelectItem>)}</SelectContent></Select>
+      </Field>
+
+      <div className="sm:col-span-2"><Field id="curse" label="Course" required error={errors.curse}>
         <Input
           id="curse"
           name="curse"
@@ -184,36 +188,13 @@ export function RegistrationForm() {
           aria-describedby={errors.curse ? 'curse-error' : undefined}
           disabled={submitting}
         />
-      </Field>
-
-      <Field id="year" label="Academic Year" required error={errors.year}>
-        <Select
-          value={fields.year}
-          onValueChange={(value) => update('year', value)}
-          disabled={submitting}
-        >
-          <SelectTrigger
-            id="year"
-            aria-invalid={Boolean(errors.year)}
-            aria-describedby={errors.year ? 'year-error' : undefined}
-          >
-            <SelectValue placeholder="Select the year" />
-          </SelectTrigger>
-          <SelectContent>
-            {YEARS.map((year) => (
-              <SelectItem key={year} value={year}>
-                {year}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
+      </Field></div></div>
 
       <Field id="cv" label="CV" error={errors.cv} hint="Optional. PDF only, up to 5 MB.">
-        <div className="rounded-lg border-2 border-dashed border-border p-6 text-center">
-          <Upload className="mx-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
-          <p className="mt-2 text-sm text-muted-foreground">Upload your CV now or use the magic link later.</p>
-          <Button type="button" variant="outline" className="mt-3" onClick={() => cvInputRef.current?.click()} disabled={submitting}>
+        <div className="group border-2 border-dashed border-border p-8 text-center transition-[border-color,background-color] hover:border-accent/40 hover:bg-card/40">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center border border-border bg-card transition-colors group-hover:border-accent/30"><Upload className="h-6 w-6 text-accent" aria-hidden="true" /></div>
+          <p className="mt-6 font-display text-lg lowercase text-primary">upload your CV now</p><p className="mt-2 text-sm text-muted-foreground">or use the personal link we send later.</p>
+          <Button type="button" variant="outline" className="mt-5 border-accent/40 px-6 uppercase tracking-widest hover:border-accent" onClick={() => cvInputRef.current?.click()} disabled={submitting}>
             Choose PDF
           </Button>
           <input ref={cvInputRef} id="cv" name="cv" type="file" accept={ALLOWED_CV_MIME} className="sr-only" disabled={submitting}
@@ -280,16 +261,17 @@ export function RegistrationForm() {
         />
       </div>
 
-      <Button type="submit" size="lg" disabled={submitting} className="w-full sm:w-auto">
+      <Button type="submit" size="lg" disabled={submitting} className="group h-14 w-full justify-between border-2 border-accent bg-accent px-5 font-display uppercase tracking-[0.15em] text-background hover:bg-transparent hover:text-accent">
         {submitting ? (
           <>
             <Loader2 className="animate-spin" aria-hidden="true" />
             Registering…
           </>
         ) : (
-          'Confirm registration'
+          <><span>Confirm registration</span><span className="transition-transform group-hover:translate-x-1">→</span></>
         )}
       </Button>
+      <p className="text-center text-xs text-muted-foreground">Free registration · You can update your CV later</p>
     </form>
   )
 }
@@ -311,9 +293,9 @@ function Field({
 }) {
   return (
     <div className="space-y-2">
-      <Label htmlFor={id}>
+      <Label htmlFor={id} className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
         {label}
-        {required ? <span className="ml-0.5 text-destructive">*</span> : null}
+        {required ? <span className="ml-1 text-accent">*</span> : null}
       </Label>
       {children}
       {hint && !error ? (
@@ -385,15 +367,12 @@ function SuccessPanel({
   magicLinkSent: boolean
 }) {
   return (
-    <div role="status" className="space-y-4 rounded-lg border border-border bg-muted/30 p-6">
-      <h2 className="text-xl font-semibold">
+    <div role="status" className="animate-enter-up space-y-8"><div className="border border-accent/30 bg-accent/[0.03] p-6 sm:p-8"><div className="animate-accent-pulse mb-6 flex h-12 w-12 items-center justify-center border border-accent text-accent">✓</div><p className="font-display text-xs uppercase tracking-[0.2em] text-accent">Step 01 complete</p><h2 className="mt-3 font-display text-3xl lowercase text-primary">
         {alreadyRegistered ? 'Already Registered' : 'Registration confirmed'}
-      </h2>
-      <p className="text-muted-foreground">
+      </h2><p className="mt-5 leading-relaxed text-muted-foreground">
         {alreadyRegistered ? 'This email is already registered for DETI+.' : 'Your registration is confirmed.'}
       </p>
-      {cvUploaded ? <p className="text-sm text-muted-foreground">Your CV was received successfully and is linked to this registration.</p> : null}
-      {magicLinkSent ? <p className="text-sm text-muted-foreground">We sent a personal link to <strong className="text-foreground">{email}</strong> so you can {cvUploaded ? 'view or replace your CV' : 'submit, view or replace your CV'} later. Check your spam folder if it does not arrive.</p> : null}
+      {cvUploaded ? <p className="mt-3 text-sm text-muted-foreground">Your CV was received successfully and is linked to this registration.</p> : null}{magicLinkSent ? <p className="mt-5 leading-relaxed text-muted-foreground">We sent an email to <strong className="text-primary">{email}</strong> with a personal link to submit your CV.</p> : null}</div><div className="grid gap-4 sm:grid-cols-2"><div className="border border-border p-5"><span className="font-display text-xs uppercase tracking-[0.18em] text-accent">01</span><p className="mt-2 font-medium text-primary">Check your email</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">Your personal CV upload link is waiting there.</p></div><div className="border border-border p-5"><span className="font-display text-xs uppercase tracking-[0.18em] text-accent">02</span><p className="mt-2 font-medium text-primary">Upload when ready</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">The link remains valid, so you can submit or replace your CV later.</p></div></div><p className="text-sm text-muted-foreground">Save the email. If you don&apos;t find it, check the spam folder.</p>
     </div>
   )
 }

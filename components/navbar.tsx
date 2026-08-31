@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
+import { cn } from "@/lib/utils";
 import { PixelCross } from "./pixel-elements";
 
 const links = [
@@ -16,13 +17,32 @@ const links = [
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState("#about");
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const updateProgress = () => {
+      const scrollable = document.documentElement.scrollHeight - window.innerHeight;
+      setProgress(scrollable > 0 ? (window.scrollY / scrollable) * 100 : 0);
+    };
+    updateProgress();
+    window.addEventListener("scroll", updateProgress, { passive: true });
+    return () => window.removeEventListener("scroll", updateProgress);
+  }, []);
+
+  useEffect(() => {
+    const elements = links.map((link) => document.querySelector(link.href)).filter((element): element is Element => Boolean(element));
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) if (entry.isIntersecting) setActiveSection(`#${entry.target.id}`);
+    }, { rootMargin: "-35% 0px -55% 0px" });
+    elements.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <>
       <div
-        className={`fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-500 ${
-          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
+        className={cn("fixed inset-0 z-40 bg-black/60 backdrop-blur-sm transition-opacity duration-500", open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0")}
         onClick={() => setOpen(false)}
         aria-hidden="true"
       />
@@ -44,9 +64,10 @@ export function Navbar() {
               <li key={l.href}>
                 <Link
                   href={`/${l.href}`}
-                  className="font-sans text-sm uppercase tracking-widest text-muted-foreground transition-colors hover:text-primary"
+                  className={cn("relative py-2 font-sans text-sm uppercase tracking-widest transition-colors", activeSection === l.href ? "text-primary" : "text-muted-foreground hover:text-primary")}
                 >
                   {l.label}
+                  <span className={cn("absolute inset-x-0 -bottom-1 h-px origin-left bg-accent transition-transform duration-200", activeSection === l.href ? "scale-x-100" : "scale-x-0")} />
                 </Link>
               </li>
             ))}
@@ -55,7 +76,7 @@ export function Navbar() {
                 href="/registration/"
                 className="inline-flex items-center border-2 border-accent bg-accent px-4 py-2 font-sans text-sm uppercase tracking-widest text-background transition-colors hover:bg-transparent hover:text-accent"
               >
-                Register
+                Register <span className="transition-transform duration-200 group-hover:translate-x-1">→</span>
               </Link>
             </li>
           </ul>
@@ -80,14 +101,16 @@ export function Navbar() {
           </button>
         </div>
 
+        <div aria-hidden="true" className="absolute inset-x-0 bottom-[-1px] h-[2px]">
+          <div className="h-full bg-accent transition-[width] duration-75" style={{ width: `${progress}%` }} />
+        </div>
+
         {/* `inert` keeps the collapsed panel out of the tab order and the
             accessibility tree while the CSS collapse animation still runs. */}
         <div
           id="mobile-menu"
           inert={!open}
-          className={`grid transition-all duration-300 ease-in-out md:hidden ${
-            open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-          }`}
+          className={cn("grid transition-all duration-300 ease-in-out md:hidden", open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}
         >
           <div className="overflow-hidden bg-background">
             <ul className="flex flex-col gap-4 border-t border-border px-6 py-6">
@@ -96,7 +119,7 @@ export function Navbar() {
                   <Link
                     href={`/${l.href}`}
                     onClick={() => setOpen(false)}
-                    className="font-sans text-sm uppercase tracking-widest text-muted-foreground transition-colors hover:text-primary"
+                    className={cn("font-sans text-sm uppercase tracking-widest transition-colors", activeSection === l.href ? "text-accent" : "text-muted-foreground hover:text-primary")}
                   >
                     {l.label}
                   </Link>

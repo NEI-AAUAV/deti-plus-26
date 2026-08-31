@@ -5,6 +5,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { SectionHeading } from "@/components/section-heading";
 
 const teams = [
   {
@@ -78,31 +79,22 @@ export function Contacts() {
   return (
     <section id="contacts" className="border-t border-border px-6 py-24">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-16 text-center">
-          <div className="mb-4 flex items-center justify-center gap-2">
-            <div className="h-2 w-2 bg-accent" />
-            <p className="font-display text-sm uppercase tracking-[0.3em] text-accent">
-              The Team
-            </p>
-          </div>
-          <h2 className="text-balance font-display text-3xl lowercase tracking-[0.15em] text-primary sm:text-4xl">
-            get in touch
-          </h2>
-        </div>
+        <SectionHeading eyebrow="The Team" title="get in touch" index="05 / 05" />
 
-        <Accordion type="single" collapsible className="flex w-full flex-col gap-4">
+        <Accordion type="single" collapsible className="flex w-full flex-col gap-3">
           {teams.map((team) => (
             <AccordionItem 
               key={team.department} 
               value={team.department}
-              className="border border-border bg-card px-2 sm:px-6" 
+              className="group border border-border bg-card px-4 transition-colors data-[state=open]:border-accent/30 sm:px-6" 
             >
-              <AccordionTrigger className="hover:no-underline">
-                <div className="flex items-center gap-4">
-                  <PixelCross className="h-4 w-4 text-accent" />
+              <AccordionTrigger className="py-6 hover:no-underline">
+                <div className="flex w-full items-center justify-between gap-6 pr-4">
+                  <div className="flex items-center gap-4"><PixelCross className="h-4 w-4 shrink-0 text-accent transition-transform duration-300 group-data-[state=open]:rotate-45" />
                   <h3 className="font-display text-xl lowercase tracking-wide text-primary sm:text-2xl">
                     {team.department}
                   </h3>
+                  </div><span className="hidden font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground sm:block">{team.members.length} {team.members.length === 1 ? "person" : "people"}</span>
                 </div>
               </AccordionTrigger>
               
@@ -111,7 +103,7 @@ export function Contacts() {
                   {team.members.map((member) => (
                     <div
                       key={member.name}
-                      className="flex flex-col gap-2 border border-border bg-background p-4 transition-colors hover:border-accent/50"
+                    className="group/member flex flex-col gap-3 border border-border bg-background p-5 transition-[border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-accent/40"
                     >
                       <div>
                         <p className="font-bold text-primary">{member.name}</p>

@@ -4,6 +4,7 @@ import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { RegistrationForm } from "@/components/registration/registration-form";
 import { BackgroundDecorations } from "@/components/background-decorations";
+import { RegistrationShell } from "@/components/registration/registration-shell";
 
 const TITLE = "Registration — DETI+";
 const DESCRIPTION =
@@ -31,22 +32,7 @@ export default function RegistrationPage() {
       <BackgroundDecorations />
       <Navbar />
       <main id="main" tabIndex={-1} className="relative z-10">
-        <section
-          aria-labelledby="registration-heading"
-          className="mx-auto w-full max-w-2xl px-6 py-20 sm:py-28"
-        >
-          <h1 id="registration-heading" className="text-4xl font-bold sm:text-5xl">
-            Register
-          </h1>
-          <p className="mt-4 text-lg text-muted-foreground">
-            Secure your place at DETI+. You can submit your CV right after signing up, or
-            later — we will email you a personal link that stays valid.
-          </p>
-
-          <div className="mt-12">
-            <RegistrationForm />
-          </div>
-        </section>
+        <RegistrationShell step={1}><section aria-labelledby="registration-heading" className="relative border border-border bg-card/50 p-6 sm:p-8 lg:p-10"><div aria-hidden="true" className="absolute left-[-1px] top-[-1px] h-5 w-5 border-l-2 border-t-2 border-accent" /><div aria-hidden="true" className="absolute bottom-[-1px] right-[-1px] h-5 w-5 border-b-2 border-r-2 border-accent" /><div className="mb-8 border-b border-border pb-6"><p className="font-display text-xs uppercase tracking-[0.2em] text-accent">Step 01</p><h2 id="registration-heading" className="mt-2 font-display text-3xl lowercase text-primary">your details</h2><p className="mt-3 text-sm leading-relaxed text-muted-foreground">Secure your place at DETI+. You can submit your CV right after signing up, or later — we will email you a personal link that stays valid.</p></div><RegistrationForm /></section></RegistrationShell>
       </main>
       <Footer />
     </>

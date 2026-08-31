@@ -169,19 +169,18 @@ export function CvUpload({ token }: { token: string }) {
   const uploading = upload.kind === 'uploading'
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-border bg-muted/30 p-4">
-        <p className="font-medium">{status.name}</p>
-        <p className="text-sm text-muted-foreground">{status.email}</p>
+    <div className="animate-enter-up space-y-6">
+      <div className="flex items-center justify-between gap-4 border border-border bg-background p-5 transition-[border-color,transform] duration-300 hover:-translate-y-0.5 hover:border-accent/40">
+        <div><p className="font-display text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Registered participant</p><p className="mt-2 font-medium text-primary">{status.name}</p><p className="mt-1 text-sm text-muted-foreground">{status.email}</p></div><div aria-hidden="true" className="h-3 w-3 bg-accent" />
       </div>
 
       {status.hasCv ? (
-        <div className="space-y-4 rounded-lg border border-border p-4">
+        <div className="animate-enter-up space-y-4 border border-accent/25 bg-accent/[0.025] p-5">
           <div className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
             <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-sm font-medium">CV on record</p>
-            <p className="break-all text-sm text-muted-foreground">{status.cvName}</p>
+            <p className="font-display text-xs uppercase tracking-[0.16em] text-accent">CV on record</p>
+            <p className="mt-3 break-all font-medium text-primary">{status.cvName}</p>
             {status.cvUpdatedAt ? (
               <p className="text-sm text-muted-foreground">
                 Submitted on {formatDate(status.cvUpdatedAt)}
@@ -219,24 +218,21 @@ export function CvUpload({ token }: { token: string }) {
             selectFile(e.dataTransfer.files[0] ?? null)
           }}
           className={[
-            'rounded-lg border-2 border-dashed p-8 text-center transition-colors',
-            dragging ? 'border-primary bg-primary/5' : 'border-border',
+            'group relative border-2 border-dashed p-10 text-center transition-[border-color,background-color] duration-200',
+            dragging ? 'border-accent bg-accent/[0.05]' : 'border-border hover:border-accent/40 hover:bg-card/40',
           ].join(' ')}
         >
-          <Upload className="mx-auto h-6 w-6 text-muted-foreground" aria-hidden="true" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            Drag your CV here, or
-          </p>
+          <div className="mx-auto flex h-14 w-14 items-center justify-center border border-border bg-card transition-colors group-hover:border-accent/30"><Upload className="h-6 w-6 text-accent" aria-hidden="true" /></div><p className="mt-6 font-display text-lg lowercase text-primary">drop your CV here</p><p className="mt-2 text-sm text-muted-foreground">or choose a file from your device</p>
           <Button
             type="button"
             variant="outline"
-            className="mt-3"
+            className="mt-5 border-accent/40 px-6 uppercase tracking-widest hover:border-accent"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
           >
             Choose file
           </Button>
-          <p className="mt-3 text-xs text-muted-foreground">PDF only, up to 5 MB.</p>
+          <p className="mt-5 text-xs uppercase tracking-[0.15em] text-muted-foreground">PDF only · up to 5 MB</p>
 
           <input
             ref={inputRef}
@@ -250,11 +246,7 @@ export function CvUpload({ token }: { token: string }) {
         </div>
 
         {file ? (
-          <p className="flex items-center gap-2 text-sm">
-            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span className="break-all font-medium">{file.name}</span>
-            <span className="text-muted-foreground">({formatBytes(file.size)})</span>
-          </p>
+          <div className="animate-enter-up flex items-center justify-between gap-4 border border-border bg-background p-4"><div className="flex min-w-0 items-center gap-3"><FileText className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" /><div className="min-w-0"><p className="truncate text-sm font-medium">{file.name}</p><p className="text-xs text-muted-foreground">{formatBytes(file.size)}</p></div></div><span className="font-display text-[10px] uppercase tracking-widest text-accent">Ready</span></div>
         ) : null}
 
         <div aria-live="polite">
@@ -264,22 +256,20 @@ export function CvUpload({ token }: { token: string }) {
             </p>
           ) : null}
           {upload.kind === 'done' ? (
-            <p className="text-sm text-primary">
-              CV received. We sent you a confirmation email.
-            </p>
+            <div className="animate-enter-up border border-accent/30 bg-accent/[0.04] p-6"><div className="flex items-start gap-4"><div className="animate-accent-pulse flex h-10 w-10 shrink-0 items-center justify-center border border-accent text-accent">✓</div><div><p className="font-display text-xs uppercase tracking-[0.2em] text-accent">Step 02 complete</p><h2 className="mt-2 font-display text-2xl lowercase text-primary">CV received</h2><p className="mt-3 text-sm leading-relaxed text-muted-foreground">Your CV is now linked to your DETI+ registration. We sent you a confirmation email.</p><p className="mt-3 text-sm text-muted-foreground">You can return using the same personal link if you need to replace it.</p></div></div></div>
           ) : null}
         </div>
 
-        <Button type="submit" size="lg" disabled={!file || uploading}>
+        <Button type="submit" size="lg" disabled={!file || uploading} className="group h-14 w-full justify-between border-2 border-accent bg-accent px-5 font-display uppercase tracking-[0.15em] text-background hover:bg-transparent hover:text-accent">
           {uploading ? (
             <>
               <Loader2 className="animate-spin" aria-hidden="true" />
               Uploading…
             </>
           ) : status.hasCv ? (
-            'Replace CV'
+            <><span>Replace CV</span><span className="transition-transform group-hover:translate-x-1">→</span></>
           ) : (
-            'Submit CV'
+            <><span>Submit CV</span><span className="transition-transform group-hover:translate-x-1">→</span></>
           )}
         </Button>
       </form>
