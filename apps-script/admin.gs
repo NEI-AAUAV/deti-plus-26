@@ -9,68 +9,32 @@
 // -----------------------------------------------------------------------------
 
 function onOpen() {
-  SpreadsheetApp
-    .getUi()
-    .createMenu(
-      'DETI+'
-    )
-    .addItem(
-      'Refresh Control Center',
-      'refreshControlCenterFromMenu'
-    )
-    .addSeparator()
-    .addItem(
-      'Open Dashboard',
-      'openDashboardFromMenu'
-    )
-    .addItem(
-      'Open Registrations',
-      'openRegistrationsFromMenu'
-    )
-    .addItem(
-      'Open Statistics',
-      'openStatisticsFromMenu'
-    )
-    .addItem(
-      'Open Settings',
-      'openSettingsFromMenu'
-    )
-    .addSeparator()
-    .addItem(
-      'Initialize / Repair Control Center',
-      'initializeControlCenterFromMenu'
-    )
-    .addToUi();
+  // This project is standalone, so a custom menu is not guaranteed to be
+  // available in the target spreadsheet. Keep this function harmless.
 }
 
 // -----------------------------------------------------------------------------
-// Menu actions
+// Manual actions
 // -----------------------------------------------------------------------------
 
 function refreshControlCenterFromMenu() {
-  const ss =
-    getSpreadsheet_();
-
   try {
     const result =
       refreshControlCenter_();
 
-    ss.toast(
+    console.log(
       [
+        'DETI+ dashboard refreshed.',
         'Confirmed: ' +
           result.registered,
-
         'Waitlist: ' +
           result.waitlisted,
-
         'CVs: ' +
           result.cvs,
-      ].join(
-        ' · '
-      ),
-      'DETI+ dashboard refreshed',
-      5
+      ].join(' ')
     );
+
+    return result;
   } catch (err) {
     console.error(
       err &&
@@ -79,20 +43,11 @@ function refreshControlCenterFromMenu() {
         : err
     );
 
-    ss.toast(
-      'The control center could not be refreshed. Check Apps Script logs.',
-      'DETI+ error',
-      8
-    );
-
     throw err;
   }
 }
 
 function initializeControlCenterFromMenu() {
-  const ss =
-    getSpreadsheet_();
-
   try {
     /*
      * Ensure all core sheets exist first.
@@ -114,13 +69,22 @@ function initializeControlCenterFromMenu() {
       registration
     );
 
-    refreshControlCenter_();
+    const result =
+      refreshControlCenter_();
 
-    ss.toast(
-      'Dashboard, Statistics, Settings and Registration are ready.',
-      'DETI+ initialized',
-      6
+    console.log(
+      [
+        'DETI+ Control Center initialized.',
+        'Confirmed: ' +
+          result.registered,
+        'Waitlist: ' +
+          result.waitlisted,
+        'CVs: ' +
+          result.cvs,
+      ].join(' ')
     );
+
+    return result;
   } catch (err) {
     console.error(
       err &&
@@ -129,18 +93,12 @@ function initializeControlCenterFromMenu() {
         : err
     );
 
-    ss.toast(
-      'Initialization failed. Check Apps Script logs.',
-      'DETI+ error',
-      8
-    );
-
     throw err;
   }
 }
 
 // -----------------------------------------------------------------------------
-// Navigation
+// Navigation helpers
 // -----------------------------------------------------------------------------
 
 function openDashboardFromMenu() {
