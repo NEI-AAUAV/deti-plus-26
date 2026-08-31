@@ -1,30 +1,82 @@
 /**
- * DETI+ 2026 - administration
+ * DETI+ 2026 - administration console.
+ *
+ * Full CRUD over registrations:
+ * - Create: manual registration from the editor
+ * - Read: global/field-specific search and participant details
+ * - Update: edit participant fields and save
+ * - Delete: permanent GDPR-aware deletion
+ *
+ * Existing operational actions (magic link, cancel/restore, waitlist, check-in)
+ * are preserved.
  */
 
-const ADMIN_SHEET_NAME =
-  'Admin';
+const ADMIN_SHEET_NAME = 'Admin';
 
-const ADMIN_EMAIL_CELL =
-  'B3';
+const ADMIN_SEARCH_CELL = 'B4';
+const ADMIN_SEARCH_FIELD_CELL = 'B5';
+const ADMIN_SELECTED_ID_CELL = 'B7';
 
-const ADMIN_ACTION_CELL =
-  'B18';
+const ADMIN_EDITOR_FIRST_ROW = 5;
+const ADMIN_EDITOR_VALUE_COLUMN = 11; // K
+const ADMIN_ACTION_CELL = 'K18';
+const ADMIN_CONFIRM_CELL = 'K19';
+const ADMIN_RESULT_CELL = 'J22';
 
-const ADMIN_CONFIRM_CELL =
-  'B19';
+const ADMIN_RESULTS_HEADER_ROW = 10;
+const ADMIN_RESULTS_FIRST_ROW = 11;
+const ADMIN_RESULTS_MAX = 50;
 
-const ADMIN_RESULT_CELL =
-  'B21';
+const ADMIN_SEARCH_FIELDS = [
+  'Tudo',
+  'ID',
+  'Nome',
+  'Email',
+  'Telemóvel',
+  'Curso',
+  'Ano',
+  'Estado',
+  'Estado do CV',
+  'Check-in',
+];
 
-const ADMIN_ACTIONS = [
-  'RESEND_MAGIC_LINK',
-  'CANCEL_REGISTRATION',
-  'RESTORE_REGISTRATION',
-  'PROMOTE_WAITLIST',
-  'CHECK_IN',
-  'UNDO_CHECK_IN',
-  'DELETE_PARTICIPANT_DATA',
+const ADMIN_ACTION_LABELS = [
+  'Criar inscrição',
+  'Guardar alterações',
+  'Reenviar magic link',
+  'Cancelar inscrição',
+  'Restaurar inscrição',
+  'Promover da lista de espera',
+  'Fazer check-in',
+  'Anular check-in',
+  'Eliminar participante',
+];
+
+const ADMIN_ACTION_MAP = {
+  'Criar inscrição': 'CREATE_REGISTRATION',
+  'Guardar alterações': 'SAVE_CHANGES',
+  'Reenviar magic link': 'RESEND_MAGIC_LINK',
+  'Cancelar inscrição': 'CANCEL_REGISTRATION',
+  'Restaurar inscrição': 'RESTORE_REGISTRATION',
+  'Promover da lista de espera': 'PROMOTE_WAITLIST',
+  'Fazer check-in': 'CHECK_IN',
+  'Anular check-in': 'UNDO_CHECK_IN',
+  'Eliminar participante': 'DELETE_PARTICIPANT_DATA',
+};
+
+const ADMIN_EDITOR_FIELDS = [
+  { key: 'registrationId', label: 'ID', editable: false },
+  { key: 'name', label: 'Nome', editable: true },
+  { key: 'email', label: 'Email', editable: true },
+  { key: 'mobileNumber', label: 'Telemóvel', editable: true },
+  { key: 'course', label: 'Curso', editable: true },
+  { key: 'year', label: 'Ano', editable: true },
+  { key: 'registrationStatus', label: 'Estado', editable: true },
+  { key: 'cvStatus', label: 'Estado do CV', editable: false },
+  { key: 'checkedIn', label: 'Check-in', editable: false },
+  { key: 'registeredAt', label: 'Inscrito em', editable: false },
+  { key: 'cvUpdatedAt', label: 'CV atualizado', editable: false },
+  { key: 'notes', label: 'Notas internas', editable: true },
 ];
 
 // -----------------------------------------------------------------------------
@@ -32,303 +84,208 @@ const ADMIN_ACTIONS = [
 // -----------------------------------------------------------------------------
 
 function initializeOperations() {
-  /*
-   * Migrate before exposing the operational sheets.
-   */
-  if (
-    typeof migrateSystem ===
-    'function'
-  ) {
-    migrateSystem();
-  }
+  if (typeof migrateSystem === 'function') migrateSystem();
 
-  const registrationSheet =
-    getSheet_();
+  const registrationSheet = getSheet_();
 
   getSettingsSheet_();
   getAuditSheet_();
-
   initializeAdminSheet_();
+  formatRegistrationSheet_(registrationSheet);
 
-  formatRegistrationSheet_(
-    registrationSheet
-  );
-
-  if (
-    typeof refreshControlCenter_ ===
-    'function'
-  ) {
-    refreshControlCenter_();
-  }
+  if (typeof refreshControlCenter_ === 'function') refreshControlCenter_();
 
   getEmailQueueSheet_();
   installOperationalTriggers();
   applyOperationalProtections();
-
   runHealthCheck();
 
-  console.log(
-    'DETI+ operations initialized.'
-  );
+  console.log('DETI+ operations initialized.');
 }
 
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('DETI+ Operations')
-    .addItem('Initialize system', 'initializeOperations')
-    .addItem('Refresh dashboard', 'refreshControlCenter_')
-    .addItem('Run migration', 'migrateSystem')
-    .addItem('Run health check', 'runHealthCheck')
+  SpreadsheetApp.getUi()
+    .createMenu('DETI+')
+    .addItem('Abrir / atualizar Admin', 'initializeAdminSheet_')
+    .addItem('Atualizar dashboard', 'refreshControlCenter_')
+    .addItem('Formatar inscrições', 'formatRegistrationSheetMenu_')
+    .addItem('Formatar configurações', 'formatSettingsSheetMenu_')
     .addSeparator()
-    .addItem('Promote next waitlisted', 'promoteNextWaitlisted')
-    .addItem('Process email queue', 'processEmailQueue')
+    .addItem('Executar migração', 'migrateSystem')
+    .addItem('Verificar sistema', 'runHealthCheck')
     .addSeparator()
-    .addItem('Export all participants', 'exportParticipantsCsv')
-    .addItem('Export confirmed participants', 'exportConfirmedParticipantsCsv')
-    .addItem('Export waitlist', 'exportWaitlistCsv')
-    .addItem('Export check-in list', 'exportCheckInListCsv')
-    .addItem('Export CV index', 'exportCvIndexCsv')
+    .addItem('Promover próximo da lista de espera', 'promoteNextWaitlisted')
+    .addItem('Processar fila de emails', 'processEmailQueue')
     .addSeparator()
-    .addItem('Apply protections', 'applyOperationalProtections')
-    .addItem('Install triggers', 'installOperationalTriggers')
-    .addItem('Run data retention', 'runDataRetention')
-    .addItem('Reset capacity notifications', 'resetCapacityNotifications')
+    .addItem('Exportar participantes', 'exportParticipantsCsv')
+    .addItem('Exportar confirmados', 'exportConfirmedParticipantsCsv')
+    .addItem('Exportar lista de espera', 'exportWaitlistCsv')
+    .addItem('Exportar check-in', 'exportCheckInListCsv')
+    .addItem('Exportar índice de CV', 'exportCvIndexCsv')
+    .addSeparator()
+    .addItem('Reaplicar permissões recomendadas', 'applyOperationalProtections')
+    .addItem('Instalar triggers', 'installOperationalTriggers')
+    .addItem('Executar retenção de dados', 'runDataRetention')
+    .addItem('Repor alertas de lotação', 'resetCapacityNotifications')
     .addToUi();
 }
 
+function formatRegistrationSheetMenu_() {
+  formatRegistrationSheet_(getSheet_());
+}
+
+function formatSettingsSheetMenu_() {
+  formatSettingsSheet_(getSettingsSheet_());
+}
+
 function initializeAdminSheet_() {
-  const ss =
-    getSpreadsheet_();
+  const ss = getSpreadsheet_();
+  let sheet = ss.getSheetByName(ADMIN_SHEET_NAME);
 
-  let sheet =
-    ss.getSheetByName(
-      ADMIN_SHEET_NAME
-    );
+  if (!sheet) sheet = ss.insertSheet(ADMIN_SHEET_NAME);
 
-  if (!sheet) {
-    sheet =
-      ss.insertSheet(
-        ADMIN_SHEET_NAME
-      );
-  }
-
+  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).breakApart();
   sheet.clear();
-  sheet.setHiddenGridlines(
-    true
-  );
+  ensureSheetSize_(sheet, 70, 12);
+  applyDetiSheetBase_(sheet, DETI_SHEET_THEME.accent);
 
-  ensureSheetSize_(
-    sheet,
-    45,
-    6
-  );
+  // Main widths
+  [150, 250, 110, 110, 110, 130, 130, 120, 30, 180, 260, 30].forEach(function (width, index) {
+    sheet.setColumnWidth(index + 1, width);
+  });
 
-  sheet.setColumnWidth(
-    1,
-    220
-  );
+  sheet.getRange('A1:H1').merge();
+  styleDetiLogoCell_(sheet.getRange('A1:H1'));
 
-  sheet.setColumnWidth(
-    2,
-    360
-  );
-
-  sheet.setColumnWidth(
-    3,
-    40
-  );
-
-  sheet.setColumnWidth(
-    4,
-    210
-  );
-
-  sheet.setColumnWidth(
-    5,
-    300
-  );
-
-  sheet
-    .getRange(
-      'A1:E1'
-    )
+  sheet.getRange('A2:H2')
     .merge()
-    .setValue(
-      'DETI+ — Administration'
-    )
-    .setBackground(
-      '#111827'
-    )
-    .setFontColor(
-      '#ffffff'
-    )
-    .setFontWeight(
-      'bold'
-    )
-    .setFontSize(
-      18
-    );
+    .setValue('Administração de inscrições')
+    .setBackground(DETI_SHEET_THEME.panel)
+    .setFontColor(DETI_SHEET_THEME.white)
+    .setFontFamily(DETI_SHEET_THEME.font)
+    .setFontWeight('bold')
+    .setFontSize(15);
 
-  sheet
-    .getRange(
-      'A2:E2'
-    )
+  sheet.getRange('A3:H3')
     .merge()
-    .setValue(
-      'Search for a participant by email and perform controlled administrative actions.'
-    )
-    .setFontColor(
-      '#6b7280'
-    );
+    .setValue('Pesquisa, seleção e gestão completa dos participantes. Pesquisa por qualquer campo.')
+    .setBackground(DETI_SHEET_THEME.panel)
+    .setFontColor(DETI_SHEET_THEME.muted)
+    .setFontFamily(DETI_SHEET_THEME.font);
 
-  sheet
-    .getRange(
-      'A3'
-    )
-    .setValue(
-      'Participant email'
-    )
-    .setFontWeight(
-      'bold'
-    );
+  sheet.getRange('A4').setValue('Pesquisar').setFontWeight('bold');
+  sheet.getRange(ADMIN_SEARCH_CELL)
+    .setBackground(DETI_SHEET_THEME.input)
+    .setNote('Pode pesquisar por nome, email, ID, telemóvel, curso, ano, estado ou check-in.');
 
-  sheet
-    .getRange(
-      ADMIN_EMAIL_CELL
-    )
-    .setBackground(
-      '#f9fafb'
-    );
-
-  const labels = [
-    ['Registration ID'],
-    ['Name'],
-    ['Email'],
-    ['Course'],
-    ['Academic year'],
-    ['Registration status'],
-    ['CV status'],
-    ['CV'],
-    ['CV updated'],
-    ['Checked in'],
-  ];
-
-  sheet
-    .getRange(
-      5,
-      1,
-      labels.length,
-      1
-    )
-    .setValues(
-      labels
-    )
-    .setFontWeight(
-      'bold'
-    )
-    .setFontColor(
-      '#6b7280'
-    );
-
-  sheet
-    .getRange(
-      'A16:E16'
-    )
-    .merge()
-    .setValue(
-      'Administrative action'
-    )
-    .setBackground(
-      '#f3f4f6'
-    )
-    .setFontWeight(
-      'bold'
-    );
-
-  sheet
-    .getRange(
-      'A18'
-    )
-    .setValue(
-      'Action'
-    )
-    .setFontWeight(
-      'bold'
-    );
-
-  const validation =
-    SpreadsheetApp
-      .newDataValidation()
-      .requireValueInList(
-        ADMIN_ACTIONS,
-        true
-      )
-      .setAllowInvalid(
-        false
-      )
-      .build();
-
-  sheet
-    .getRange(
-      ADMIN_ACTION_CELL
-    )
+  sheet.getRange('A5').setValue('Pesquisar em').setFontWeight('bold');
+  sheet.getRange(ADMIN_SEARCH_FIELD_CELL)
     .setDataValidation(
-      validation
-    );
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(ADMIN_SEARCH_FIELDS, true)
+        .setAllowInvalid(false)
+        .build()
+    )
+    .setValue('Tudo')
+    .setBackground(DETI_SHEET_THEME.input);
 
-  sheet
-    .getRange(
-      'A19'
-    )
-    .setValue(
-      'Confirm'
-    )
-    .setFontWeight(
-      'bold'
-    );
+  sheet.getRange('A7').setValue('Participante selecionado').setFontWeight('bold');
+  sheet.getRange(ADMIN_SELECTED_ID_CELL)
+    .setBackground(DETI_SHEET_THEME.input)
+    .setNote('Escolha um ID resultante da pesquisa ou introduza-o diretamente.');
 
-  sheet
-    .getRange(
-      ADMIN_CONFIRM_CELL
-    )
-    .insertCheckboxes();
-
-  sheet
-    .getRange(
-      'A21'
-    )
-    .setValue(
-      'Result'
-    )
-    .setFontWeight(
-      'bold'
-    );
-
-  sheet
-    .getRange(
-      ADMIN_RESULT_CELL
-    )
-    .setWrap(
-      true
-    );
-
-  sheet
-    .getRange(
-      'D3:E3'
-    )
+  sheet.getRange('A9:H9')
     .merge()
-    .setValue(
-      'Health check'
-    )
-    .setBackground(
-      '#f3f4f6'
-    )
-    .setFontWeight(
-      'bold'
-    );
+    .setValue('Resultados')
+    .setBackground(DETI_SHEET_THEME.panelAlt)
+    .setFontColor(DETI_SHEET_THEME.white)
+    .setFontWeight('bold');
 
-  sheet.setFrozenRows(
-    2
+  sheet.getRange(ADMIN_RESULTS_HEADER_ROW, 1, 1, 8)
+    .setValues([['ID', 'Nome', 'Email', 'Curso', 'Ano', 'Estado', 'CV', 'Check-in']])
+    .setBackground(DETI_SHEET_THEME.black)
+    .setFontColor(DETI_SHEET_THEME.white)
+    .setFontWeight('bold');
+
+  // Right-side editor
+  sheet.getRange('J1:K1').merge();
+  styleDetiLogoCell_(sheet.getRange('J1:K1'));
+
+  sheet.getRange('J2:K2')
+    .merge()
+    .setValue('Ficha do participante')
+    .setBackground(DETI_SHEET_THEME.panel)
+    .setFontColor(DETI_SHEET_THEME.white)
+    .setFontWeight('bold')
+    .setFontSize(14);
+
+  const labels = ADMIN_EDITOR_FIELDS.map(function (field) { return [field.label]; });
+  sheet.getRange(ADMIN_EDITOR_FIRST_ROW, 10, labels.length, 1)
+    .setValues(labels)
+    .setFontWeight('bold')
+    .setFontColor('#525252');
+
+  sheet.getRange(ADMIN_EDITOR_FIRST_ROW, ADMIN_EDITOR_VALUE_COLUMN, labels.length, 1)
+    .setBackground(DETI_SHEET_THEME.input);
+
+  // Visual distinction between editable and read-only editor cells.
+  ADMIN_EDITOR_FIELDS.forEach(function (field, index) {
+    const cell = sheet.getRange(ADMIN_EDITOR_FIRST_ROW + index, ADMIN_EDITOR_VALUE_COLUMN);
+
+    if (!field.editable) {
+      cell.setBackground('#f3f4f6').setFontColor('#737373');
+    }
+  });
+
+  // Data validation for editable status/year.
+  getAdminEditorCell_('registrationStatus').setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInList(['confirmed', 'waitlisted', 'cancelled'], true)
+      .setAllowInvalid(false)
+      .build()
   );
+
+  getAdminEditorCell_('year').setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInList(YEARS, true)
+      .setAllowInvalid(true)
+      .build()
+  );
+
+  sheet.getRange('J18').setValue('Ação').setFontWeight('bold');
+  sheet.getRange(ADMIN_ACTION_CELL)
+    .setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(ADMIN_ACTION_LABELS, true)
+        .setAllowInvalid(false)
+        .build()
+    )
+    .setBackground(DETI_SHEET_THEME.input);
+
+  sheet.getRange('J19').setValue('Confirmar').setFontWeight('bold');
+  sheet.getRange(ADMIN_CONFIRM_CELL).insertCheckboxes();
+
+  sheet.getRange('J21:K21')
+    .merge()
+    .setValue('Resultado')
+    .setBackground(DETI_SHEET_THEME.panelAlt)
+    .setFontColor(DETI_SHEET_THEME.white)
+    .setFontWeight('bold');
+
+  sheet.getRange(ADMIN_RESULT_CELL + ':K24')
+    .merge()
+    .setWrap(true)
+    .setVerticalAlignment('top');
+
+  sheet.getRange('J26:K26')
+    .merge()
+    .setValue('Estado do sistema')
+    .setBackground(DETI_SHEET_THEME.panelAlt)
+    .setFontColor(DETI_SHEET_THEME.white)
+    .setFontWeight('bold');
+
+  sheet.setFrozenRows(3);
+  refreshAdminSearch_();
 
   return sheet;
 }
@@ -338,111 +295,53 @@ function initializeAdminSheet_() {
 // -----------------------------------------------------------------------------
 
 function ensureAdminEditTrigger_() {
-  ensureSpreadsheetTrigger_(
-    'handleAdminEdit_'
-  );
+  ensureSpreadsheetTrigger_('handleAdminEdit_');
 }
 
 function ensureRegistrationEditTrigger_() {
-  ensureSpreadsheetTrigger_(
-    'handleRegistrationEdit_'
-  );
+  ensureSpreadsheetTrigger_('handleRegistrationEdit_');
 }
 
-function ensureSpreadsheetTrigger_(
-  handler
-) {
-  const ss =
-    getSpreadsheet_();
+function ensureSpreadsheetTrigger_(handler) {
+  const ss = getSpreadsheet_();
 
-  const exists =
-    ScriptApp
-      .getProjectTriggers()
-      .some(
-        function (
-          trigger
-        ) {
-          return (
-            trigger
-              .getHandlerFunction() ===
-            handler
-          );
-        }
-      );
+  const exists = ScriptApp.getProjectTriggers().some(function (trigger) {
+    return trigger.getHandlerFunction() === handler;
+  });
 
-  if (exists) {
-    return;
-  }
+  if (exists) return;
 
-  ScriptApp
-    .newTrigger(
-      handler
-    )
-    .forSpreadsheet(
-      ss
-    )
-    .onEdit()
-    .create();
+  ScriptApp.newTrigger(handler).forSpreadsheet(ss).onEdit().create();
 }
 
 // -----------------------------------------------------------------------------
-// Admin sheet edit
+// Admin edit handling
 // -----------------------------------------------------------------------------
 
 function handleAdminEdit_(e) {
-  if (
-    !e ||
-    !e.range
-  ) {
+  if (!e || !e.range) return;
+
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== ADMIN_SHEET_NAME) return;
+
+  const a1 = e.range.getA1Notation();
+
+  if (a1 === ADMIN_SEARCH_CELL || a1 === ADMIN_SEARCH_FIELD_CELL) {
+    refreshAdminSearch_();
     return;
   }
 
-  const sheet =
-    e.range.getSheet();
-
-  if (
-    sheet.getName() !==
-    ADMIN_SHEET_NAME
-  ) {
+  if (a1 === ADMIN_SELECTED_ID_CELL) {
+    loadAdminParticipantById_();
     return;
   }
 
-  const a1 =
-    e.range
-      .getA1Notation();
-
-  if (
-    a1 ===
-    ADMIN_EMAIL_CELL
-  ) {
-    loadAdminParticipant_();
-    return;
-  }
-
-  if (
-    a1 !==
-    ADMIN_CONFIRM_CELL
-  ) {
-    return;
-  }
-
-  if (
-    e.value !==
-    'TRUE'
-  ) {
-    return;
-  }
+  if (a1 !== ADMIN_CONFIRM_CELL || e.value !== 'TRUE') return;
 
   try {
     executeAdminAction_();
   } finally {
-    sheet
-      .getRange(
-        ADMIN_CONFIRM_CELL
-      )
-      .setValue(
-        false
-      );
+    sheet.getRange(ADMIN_CONFIRM_CELL).setValue(false);
   }
 }
 
@@ -451,124 +350,47 @@ function handleAdminEdit_(e) {
 // -----------------------------------------------------------------------------
 
 function handleRegistrationEdit_(e) {
-  if (
-    !e ||
-    !e.range
-  ) {
+  if (!e || !e.range) return;
+
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== SHEET_NAME) return;
+
+  const map = getHeaderMap_(sheet);
+  const checkedInColumn = map.checkedIn;
+  const notesColumn = map.notes;
+
+  if (notesColumn && e.range.getColumn() === notesColumn) return;
+
+  if (!checkedInColumn || e.range.getColumn() !== checkedInColumn || e.range.getRow() < 2) {
     return;
   }
 
-  const sheet =
-    e.range.getSheet();
+  const rows = readRecords_(sheet);
+  const entry = rows.find(function (item) { return item.row === e.range.getRow(); });
+  if (!entry) return;
 
-  if (
-    sheet.getName() !==
-    SHEET_NAME
-  ) {
+  const record = entry.record;
+  const previousStatus = normalizedRegistrationStatus_(record);
+
+  if (previousStatus === 'cancelled') {
+    e.range.setValue(false);
     return;
   }
 
-  const map =
-    getHeaderMap_(
-      sheet
-    );
-
-  const checkedInColumn =
-    map.checkedIn;
-
-  const notesColumn =
-    map.notes;
-
-  /*
-   * Notes are intentionally editable without additional business logic.
-   */
-  if (
-    notesColumn &&
-    e.range.getColumn() ===
-      notesColumn
-  ) {
-    return;
-  }
-
-  if (
-    !checkedInColumn ||
-    e.range.getColumn() !==
-      checkedInColumn ||
-    e.range.getRow() <
-      2
-  ) {
-    return;
-  }
-
-  const rows =
-    readRecords_(
-      sheet
-    );
-
-  const entry =
-    rows.find(
-      function (
-        item
-      ) {
-        return (
-          item.row ===
-          e.range.getRow()
-        );
-      }
-    );
-
-  if (!entry) {
-    return;
-  }
-
-  const record =
-    entry.record;
-
-  const previousStatus =
-    normalizedRegistrationStatus_(
-      record
-    );
-
-  if (
-    previousStatus ===
-    'cancelled'
-  ) {
-    e.range.setValue(
-      false
-    );
-
-    return;
-  }
-
-  const checked =
-    e.value ===
-    'TRUE';
+  const checked = e.value === 'TRUE';
 
   if (checked) {
-    const now =
-      new Date();
+    const now = new Date();
 
-    setCells_(
-      sheet,
-      entry.row,
-      {
-        checkedIn:
-          true,
+    setCells_(sheet, entry.row, {
+      checkedIn: true,
+      checkedInAt: now,
+      registrationStatus: 'confirmed',
+      state: legacyStateFor_('confirmed', normalizedCvStatus_(record)),
+    });
 
-        checkedInAt:
-          now,
-
-        state:
-          legacyStateFor_('confirmed', normalizedCvStatus_(record)),
-      }
-    );
-
-    record.checkedIn =
-      true;
-
-    record.checkedInAt =
-      now;
-
+    record.checkedIn = true;
+    record.checkedInAt = now;
     record.registrationStatus = 'confirmed';
     record.state = legacyStateFor_('confirmed', normalizedCvStatus_(record));
 
@@ -581,423 +403,521 @@ function handleRegistrationEdit_(e) {
       getAdminActor_()
     );
   } else {
-    const nextStatus = 'confirmed';
+    setCells_(sheet, entry.row, {
+      checkedIn: false,
+      checkedInAt: '',
+      registrationStatus: 'confirmed',
+      state: legacyStateFor_('confirmed', normalizedCvStatus_(record)),
+    });
 
-    setCells_(
-      sheet,
-      entry.row,
-      {
-        checkedIn:
-          false,
-
-        checkedInAt:
-          '',
-
-        registrationStatus:
-          nextStatus,
-
-        state:
-          legacyStateFor_(
-            nextStatus,
-            normalizedCvStatus_(
-              record
-            )
-          ),
-      }
-    );
-
-    record.checkedIn =
-      false;
-
-    record.checkedInAt =
-      '';
-
-    record.registrationStatus =
-      nextStatus;
+    record.checkedIn = false;
+    record.checkedInAt = '';
+    record.registrationStatus = 'confirmed';
 
     logAudit_(
       'PARTICIPANT_CHECKIN_REVERSED',
       record,
       previousStatus,
-      nextStatus,
+      'confirmed',
       'Participant check-in reversed.',
       getAdminActor_()
     );
   }
 
-  if (
-    typeof refreshControlCenter_ ===
-    'function'
-  ) {
-    refreshControlCenter_();
-  }
+  if (typeof refreshControlCenter_ === 'function') refreshControlCenter_();
 }
 
 // -----------------------------------------------------------------------------
-// Participant lookup
+// Search / Read
 // -----------------------------------------------------------------------------
 
-function loadAdminParticipant_() {
-  const sheet =
-    getOrCreateAdminSheet_();
+function refreshAdminSearch_() {
+  const admin = getOrCreateAdminSheet_();
 
-  clearAdminParticipant_(
-    sheet
-  );
+  const query = String(admin.getRange(ADMIN_SEARCH_CELL).getValue() || '').trim();
+  const field = String(admin.getRange(ADMIN_SEARCH_FIELD_CELL).getValue() || 'Tudo').trim();
 
-  const email =
-    normalizeEmail_(
-      sheet
-        .getRange(
-          ADMIN_EMAIL_CELL
-        )
-        .getValue()
-    );
+  const matches = searchAdminParticipants_(query, field);
+  const outputRange = admin.getRange(ADMIN_RESULTS_FIRST_ROW, 1, ADMIN_RESULTS_MAX, 8);
 
-  if (!email) {
-    return null;
+  outputRange.clearContent().clearFormat();
+
+  const values = matches.slice(0, ADMIN_RESULTS_MAX).map(function (entry) {
+    const record = entry.record;
+
+    return [
+      record.registrationId || '',
+      record.name || '',
+      record.email || '',
+      record.course || record.curse || '',
+      record.year || '',
+      normalizedRegistrationStatus_(record),
+      normalizedCvStatus_(record),
+      isRecordCheckedIn_(record) ? 'Sim' : 'Não',
+    ];
+  });
+
+  if (values.length) {
+    admin.getRange(ADMIN_RESULTS_FIRST_ROW, 1, values.length, 8).setValues(values);
+
+    for (let index = 0; index < values.length; index++) {
+      const row = ADMIN_RESULTS_FIRST_ROW + index;
+      admin.getRange(row, 1, 1, 8)
+        .setBackground(row % 2 === 0 ? DETI_SHEET_THEME.bodyAlt : DETI_SHEET_THEME.body)
+        .setFontFamily(DETI_SHEET_THEME.font);
+    }
+
+    const ids = values.map(function (row) { return row[0]; }).filter(Boolean);
+
+    if (ids.length) {
+      admin.getRange(ADMIN_SELECTED_ID_CELL).setDataValidation(
+        SpreadsheetApp.newDataValidation()
+          .requireValueInList(ids, true)
+          .setAllowInvalid(true)
+          .build()
+      );
+    }
   }
 
-  const found =
-    findRowByEmail_(
-      getSheet_(),
-      email
-    );
+  if (!query) {
+    setAdminResult_('A mostrar as inscrições mais recentes. Use a pesquisa para filtrar.', false);
+  } else {
+    setAdminResult_(values.length + ' resultado(s) encontrado(s).', false);
+  }
+
+  return matches;
+}
+
+function searchAdminParticipants_(query, field) {
+  const rows = readRecords_(getSheet_());
+  const normalizedQuery = normalizeAdminSearchText_(query);
+
+  const filtered = rows.filter(function (entry) {
+    if (!normalizedQuery) return true;
+
+    const record = entry.record;
+    const values = adminSearchValues_(record);
+
+    if (field === 'Tudo') {
+      return Object.keys(values).some(function (key) {
+        return normalizeAdminSearchText_(values[key]).indexOf(normalizedQuery) !== -1;
+      });
+    }
+
+    const key = adminSearchFieldKey_(field);
+    return normalizeAdminSearchText_(values[key]).indexOf(normalizedQuery) !== -1;
+  });
+
+  return filtered.sort(function (a, b) {
+    const ad = new Date(a.record.registeredAt || a.record.timestamp || 0).getTime() || 0;
+    const bd = new Date(b.record.registeredAt || b.record.timestamp || 0).getTime() || 0;
+    return bd - ad || b.row - a.row;
+  });
+}
+
+function adminSearchValues_(record) {
+  return {
+    id: record.registrationId || '',
+    name: record.name || '',
+    email: record.email || '',
+    mobile: record.mobileNumber || '',
+    course: record.course || record.curse || '',
+    year: record.year || '',
+    status: normalizedRegistrationStatus_(record),
+    cv: normalizedCvStatus_(record),
+    checkin: isRecordCheckedIn_(record) ? 'sim yes true checked in' : 'não nao no false',
+  };
+}
+
+function adminSearchFieldKey_(field) {
+  const map = {
+    'ID': 'id',
+    'Nome': 'name',
+    'Email': 'email',
+    'Telemóvel': 'mobile',
+    'Curso': 'course',
+    'Ano': 'year',
+    'Estado': 'status',
+    'Estado do CV': 'cv',
+    'Check-in': 'checkin',
+  };
+
+  return map[field] || 'email';
+}
+
+function normalizeAdminSearchText_(value) {
+  return String(value == null ? '' : value)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function loadAdminParticipantById_() {
+  const admin = getOrCreateAdminSheet_();
+  const id = String(admin.getRange(ADMIN_SELECTED_ID_CELL).getValue() || '').trim();
+
+  clearAdminEditor_(admin);
+
+  if (!id) return null;
+
+  const found = findRowByRegistrationId_(getSheet_(), id);
 
   if (!found) {
-    setAdminResult_(
-      'Participant not found.',
-      true
-    );
-
+    setAdminResult_('Participante não encontrado.', true);
     return null;
   }
 
-  const record =
-    found.record;
-
-  const registrationStatus =
-    normalizedRegistrationStatus_(
-      record
-    );
-
-  const cvStatus =
-    normalizedCvStatus_(
-      record
-    );
-
-  sheet
-    .getRange(
-      'B5:B14'
-    )
-    .setValues([
-      [
-        record.registrationId ||
-        '',
-      ],
-      [
-        record.name ||
-        '',
-      ],
-      [
-        record.email ||
-        '',
-      ],
-      [
-        record.course ||
-        record.curse ||
-        '',
-      ],
-      [
-        record.year ||
-        '',
-      ],
-      [
-        registrationStatus,
-      ],
-      [
-        cvStatus,
-      ],
-      [
-        record.cvFileId
-          ? 'CV available'
-          : 'No CV',
-      ],
-      [
-        record.cvUpdatedAt ||
-        '',
-      ],
-      [
-        Boolean(
-          record.checkedIn
-        ),
-      ],
-    ]);
-
-  if (
-    record.cvUpdatedAt
-  ) {
-    sheet
-      .getRange(
-        'B13'
-      )
-      .setNumberFormat(
-        'dd/mm/yyyy hh:mm'
-      );
-  }
-
-  if (
-    record.cvFileId
-  ) {
-    const fileId =
-      String(
-        record.cvFileId
-      ).replace(
-        /"/g,
-        ''
-      );
-
-    const formula =
-      '=HYPERLINK("' +
-      'https://drive.google.com/file/d/' +
-      fileId +
-      '/view","Open CV in Google Drive")';
-
-    sheet
-      .getRange(
-        'B12'
-      )
-      .setFormula(
-        formula
-      );
-  }
-
-  setAdminResult_(
-    'Participant loaded.',
-    false
-  );
+  fillAdminEditor_(found.record);
+  setAdminResult_('Participante carregado.', false);
 
   return found;
 }
 
-function getOrCreateAdminSheet_() {
-  const ss =
-    getSpreadsheet_();
+/**
+ * Compatibility helper retained for callers that still use email.
+ */
+function loadAdminParticipant_() {
+  const admin = getOrCreateAdminSheet_();
+  const email = normalizeEmail_(admin.getRange(ADMIN_SEARCH_CELL).getValue());
 
-  return (
-    ss.getSheetByName(
-      ADMIN_SHEET_NAME
-    ) ||
-    initializeAdminSheet_()
-  );
+  if (!email) return null;
+
+  const found = findRowByEmail_(getSheet_(), email);
+  if (!found) {
+    setAdminResult_('Participante não encontrado.', true);
+    return null;
+  }
+
+  admin.getRange(ADMIN_SELECTED_ID_CELL).setValue(found.record.registrationId || '');
+  fillAdminEditor_(found.record);
+  return found;
 }
 
-function clearAdminParticipant_(
-  sheet
-) {
-  sheet
-    .getRange(
-      'B5:B14'
-    )
-    .clearContent();
+function fillAdminEditor_(record) {
+  const admin = getOrCreateAdminSheet_();
 
-  sheet
-    .getRange(
-      ADMIN_RESULT_CELL
-    )
+  const values = ADMIN_EDITOR_FIELDS.map(function (field) {
+    let value = record[field.key];
+
+    if (field.key === 'registrationStatus') value = normalizedRegistrationStatus_(record);
+    if (field.key === 'cvStatus') value = normalizedCvStatus_(record);
+    if (field.key === 'checkedIn') value = isRecordCheckedIn_(record) ? 'Sim' : 'Não';
+    if (field.key === 'course') value = record.course || record.curse || '';
+
+    return [value == null ? '' : value];
+  });
+
+  admin
+    .getRange(ADMIN_EDITOR_FIRST_ROW, ADMIN_EDITOR_VALUE_COLUMN, values.length, 1)
+    .setValues(values);
+
+  ['registeredAt', 'cvUpdatedAt'].forEach(function (key) {
+    getAdminEditorCell_(key).setNumberFormat('dd/mm/yyyy hh:mm');
+  });
+}
+
+function clearAdminEditor_(sheet) {
+  (sheet || getOrCreateAdminSheet_())
+    .getRange(ADMIN_EDITOR_FIRST_ROW, ADMIN_EDITOR_VALUE_COLUMN, ADMIN_EDITOR_FIELDS.length, 1)
     .clearContent();
+}
+
+function getAdminEditorCell_(key) {
+  for (let i = 0; i < ADMIN_EDITOR_FIELDS.length; i++) {
+    if (ADMIN_EDITOR_FIELDS[i].key === key) {
+      return getOrCreateAdminSheet_().getRange(ADMIN_EDITOR_FIRST_ROW + i, ADMIN_EDITOR_VALUE_COLUMN);
+    }
+  }
+
+  throw new Error('Unknown admin editor field: ' + key);
+}
+
+function getAdminEditorValues_() {
+  const admin = getOrCreateAdminSheet_();
+  const values = admin
+    .getRange(ADMIN_EDITOR_FIRST_ROW, ADMIN_EDITOR_VALUE_COLUMN, ADMIN_EDITOR_FIELDS.length, 1)
+    .getValues();
+
+  const result = {};
+
+  ADMIN_EDITOR_FIELDS.forEach(function (field, index) {
+    result[field.key] = values[index][0];
+  });
+
+  return result;
+}
+
+function getOrCreateAdminSheet_() {
+  const ss = getSpreadsheet_();
+  return ss.getSheetByName(ADMIN_SHEET_NAME) || initializeAdminSheet_();
 }
 
 // -----------------------------------------------------------------------------
-// Action dispatcher
+// CRUD dispatcher
 // -----------------------------------------------------------------------------
 
 function executeAdminAction_() {
-  const adminSheet =
-    getOrCreateAdminSheet_();
+  const admin = getOrCreateAdminSheet_();
+  const label = String(admin.getRange(ADMIN_ACTION_CELL).getValue() || '').trim();
+  const action = ADMIN_ACTION_MAP[label];
 
-  const email =
-    normalizeEmail_(
-      adminSheet
-        .getRange(
-          ADMIN_EMAIL_CELL
-        )
-        .getValue()
-    );
-
-  const action =
-    String(
-      adminSheet
-        .getRange(
-          ADMIN_ACTION_CELL
-        )
-        .getValue() ||
-      ''
-    ).trim();
-
-  if (!email) {
-    setAdminResult_(
-      'Enter a participant email first.',
-      true
-    );
-
+  if (!action) {
+    setAdminResult_('Escolha uma ação válida.', true);
     return;
   }
 
-  if (
-    ADMIN_ACTIONS.indexOf(
-      action
-    ) === -1
-  ) {
-    setAdminResult_(
-      'Choose a valid action.',
-      true
-    );
-
-    return;
-  }
-
+  const selectedId = String(admin.getRange(ADMIN_SELECTED_ID_CELL).getValue() || '').trim();
   let result;
 
   switch (action) {
-    case 'RESEND_MAGIC_LINK':
-      result =
-        adminResendMagicLink_(
-          email
-        );
+    case 'CREATE_REGISTRATION':
+      result = adminCreateRegistration_();
       break;
 
-    case 'CANCEL_REGISTRATION':
-      result =
-        adminCancelRegistration_(
-          email
-        );
-      break;
-
-    case 'RESTORE_REGISTRATION':
-      result =
-        adminRestoreRegistration_(
-          email
-        );
-      break;
-
-    case 'PROMOTE_WAITLIST':
-      result =
-        adminPromoteWaitlist_(
-          email
-        );
-      break;
-
-    case 'CHECK_IN':
-      result =
-        adminCheckIn_(
-          email
-        );
-      break;
-
-    case 'UNDO_CHECK_IN':
-      result =
-        adminUndoCheckIn_(
-          email
-        );
-      break;
-
-    case 'DELETE_PARTICIPANT_DATA':
-      result =
-        adminDeleteParticipantData_(
-          email
-        );
+    case 'SAVE_CHANGES':
+      result = adminSaveRegistration_(selectedId);
       break;
 
     default:
-      result = {
-        ok:
-          false,
+      if (!selectedId) {
+        setAdminResult_('Selecione primeiro um participante.', true);
+        return;
+      }
 
-        message:
-          'Unsupported action.',
-      };
+      const found = findRowByRegistrationId_(getSheet_(), selectedId);
+      if (!found) {
+        setAdminResult_('Participante não encontrado.', true);
+        return;
+      }
+
+      result = executeExistingParticipantAction_(action, found.record.email);
   }
 
-  setAdminResult_(
-    result.message,
-    !result.ok
-  );
+  setAdminResult_(result.message, !result.ok);
 
-  if (
-    action !==
-    'DELETE_PARTICIPANT_DATA' ||
-    !result.ok
-  ) {
-    loadAdminParticipant_();
-  } else {
-    clearAdminParticipant_(
-      adminSheet
-    );
+  refreshAdminSearch_();
 
-    adminSheet
-      .getRange(
-        ADMIN_EMAIL_CELL
-      )
-      .clearContent();
-
-    setAdminResult_(
-      result.message,
-      false
-    );
+  if (result.ok && action === 'CREATE_REGISTRATION' && result.registrationId) {
+    admin.getRange(ADMIN_SELECTED_ID_CELL).setValue(result.registrationId);
+    loadAdminParticipantById_();
+  } else if (result.ok && action === 'DELETE_PARTICIPANT_DATA') {
+    admin.getRange(ADMIN_SELECTED_ID_CELL).clearContent();
+    clearAdminEditor_(admin);
+  } else if (selectedId) {
+    admin.getRange(ADMIN_SELECTED_ID_CELL).setValue(selectedId);
+    loadAdminParticipantById_();
   }
 
-  if (
-    typeof refreshControlCenter_ ===
-    'function'
-  ) {
-    refreshControlCenter_();
+  if (typeof refreshControlCenter_ === 'function') refreshControlCenter_();
+}
+
+function executeExistingParticipantAction_(action, email) {
+  switch (action) {
+    case 'RESEND_MAGIC_LINK':
+      return adminResendMagicLink_(email);
+    case 'CANCEL_REGISTRATION':
+      return adminCancelRegistration_(email);
+    case 'RESTORE_REGISTRATION':
+      return adminRestoreRegistration_(email);
+    case 'PROMOTE_WAITLIST':
+      return adminPromoteWaitlist_(email);
+    case 'CHECK_IN':
+      return adminCheckIn_(email);
+    case 'UNDO_CHECK_IN':
+      return adminUndoCheckIn_(email);
+    case 'DELETE_PARTICIPANT_DATA':
+      return adminDeleteParticipantData_(email);
+    default:
+      return adminError_('Ação não suportada.');
   }
 }
 
 // -----------------------------------------------------------------------------
-// Resend
+// Create / Update
 // -----------------------------------------------------------------------------
 
-function adminResendMagicLink_(
-  email
-) {
-  const found =
-    findRowByEmail_(
-      getSheet_(),
-      email
-    );
+function adminCreateRegistration_() {
+  return withAdminLock_(function () {
+    const sheet = getSheet_();
+    const editor = getAdminEditorValues_();
 
-  if (!found) {
-    return adminError_(
-      'Participant not found.'
-    );
-  }
+    const name = String(editor.name || '').trim();
+    const email = normalizeEmail_(editor.email);
+    const mobileNumber = String(editor.mobileNumber || '').trim();
+    const course = String(editor.course || '').trim();
+    const year = String(editor.year || '').trim();
+    const notes = String(editor.notes || '').trim();
+    const requestedStatus = String(editor.registrationStatus || 'confirmed').trim().toLowerCase();
 
-  const status =
-    normalizedRegistrationStatus_(
-      found.record
-    );
-
-  if (
-    status ===
-    'cancelled'
-  ) {
-    return adminError_(
-      'Cancelled registrations do not receive magic-link emails.'
-    );
-  }
-
-  sendMagicLink_(
-    found.record,
-    {
-      returning:
-        true,
-
-      registrationStatus:
-        status,
+    if (!name || !email || !course || !year) {
+      return adminError_('Preencha Nome, Email, Curso e Ano antes de criar a inscrição.');
     }
-  );
+
+    if (findRowByEmail_(sheet, email)) {
+      return adminError_('Já existe uma inscrição com este email.');
+    }
+
+    const status = ['confirmed', 'waitlisted', 'cancelled'].indexOf(requestedStatus) !== -1
+      ? requestedStatus
+      : 'confirmed';
+
+    if (status === 'confirmed') {
+      const config = getEventConfig_();
+      const counts = getRegistrationCounts_();
+
+      if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
+        return adminError_('A lotação está cheia. Crie a inscrição como waitlisted ou liberte uma vaga.');
+      }
+    }
+
+    const now = new Date();
+    const registrationId = createNextRegistrationId_(sheet);
+
+    const record = {
+      registrationId: registrationId,
+      registeredAt: now,
+      token: Utilities.getUuid(),
+      name: name,
+      email: email,
+      mobileNumber: mobileNumber,
+      course: course,
+      year: year,
+      registrationStatus: status,
+      cvStatus: 'none',
+      hasCvConsent: false,
+      hasGdprConsent: true,
+      cvFileId: '',
+      cvName: '',
+      cvSubmittedAt: '',
+      cvUpdatedAt: '',
+      checkedIn: false,
+      checkedInAt: '',
+      cancelledAt: status === 'cancelled' ? now : '',
+      notes: notes,
+      timestamp: now,
+      curse: course,
+      state: legacyStateFor_(status, 'none'),
+    };
+
+    appendRegistration_(sheet, record);
+
+    logAudit_(
+      'REGISTRATION_CREATED',
+      record,
+      '',
+      status,
+      'Registration manually created by administrator.',
+      getAdminActor_()
+    );
+
+    return {
+      ok: true,
+      message: 'Inscrição criada com sucesso.',
+      registrationId: registrationId,
+    };
+  });
+}
+
+function adminSaveRegistration_(registrationId) {
+  if (!registrationId) return adminError_('Selecione primeiro um participante.');
+
+  return withAdminLock_(function () {
+    const sheet = getSheet_();
+    const found = findRowByRegistrationId_(sheet, registrationId);
+
+    if (!found) return adminError_('Participante não encontrado.');
+
+    const editor = getAdminEditorValues_();
+    const current = found.record;
+    const previousEmail = normalizeEmail_(current.email);
+    const nextEmail = normalizeEmail_(editor.email);
+
+    if (!String(editor.name || '').trim() || !nextEmail) {
+      return adminError_('Nome e Email são obrigatórios.');
+    }
+
+    if (nextEmail !== previousEmail) {
+      const duplicate = findRowByEmail_(sheet, nextEmail);
+
+      if (duplicate && duplicate.row !== found.row) {
+        return adminError_('Já existe outra inscrição com esse email.');
+      }
+    }
+
+    const previousStatus = normalizedRegistrationStatus_(current);
+    const nextStatus = String(editor.registrationStatus || previousStatus).trim().toLowerCase();
+
+    if (['confirmed', 'waitlisted', 'cancelled'].indexOf(nextStatus) === -1) {
+      return adminError_('Estado inválido.');
+    }
+
+    if (previousStatus !== 'confirmed' && nextStatus === 'confirmed') {
+      const config = getEventConfig_();
+      const counts = getRegistrationCounts_();
+
+      if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
+        return adminError_('Não existe uma vaga confirmada disponível.');
+      }
+    }
+
+    const course = String(editor.course || '').trim();
+
+    const updates = {
+      name: String(editor.name || '').trim(),
+      email: nextEmail,
+      mobileNumber: String(editor.mobileNumber || '').trim(),
+      course: course,
+      curse: course,
+      year: String(editor.year || '').trim(),
+      registrationStatus: nextStatus,
+      cancelledAt: nextStatus === 'cancelled'
+        ? (current.cancelledAt || new Date())
+        : '',
+      checkedIn: nextStatus === 'cancelled' ? false : current.checkedIn,
+      checkedInAt: nextStatus === 'cancelled' ? '' : current.checkedInAt,
+      notes: String(editor.notes || '').trim(),
+      state: legacyStateFor_(nextStatus, normalizedCvStatus_(current)),
+    };
+
+    setCells_(sheet, found.row, updates);
+
+    const auditRecord = Object.assign({}, current, updates);
+
+    logAudit_(
+      'REGISTRATION_UPDATED',
+      auditRecord,
+      previousStatus,
+      nextStatus,
+      'Participant data updated by administrator.',
+      getAdminActor_()
+    );
+
+    if (previousStatus === 'confirmed' && nextStatus === 'cancelled') {
+      promoteNextWaitlistedUnlocked_(sheet, 'Place released by administrative update.');
+    }
+
+    checkCapacityNotifications_();
+
+    return adminSuccess_('Alterações guardadas.');
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Existing operational actions
+// -----------------------------------------------------------------------------
+
+function adminResendMagicLink_(email) {
+  const found = findRowByEmail_(getSheet_(), email);
+  if (!found) return adminError_('Participante não encontrado.');
+
+  const status = normalizedRegistrationStatus_(found.record);
+
+  if (status === 'cancelled') {
+    return adminError_('Inscrições canceladas não recebem magic links.');
+  }
+
+  sendMagicLink_(found.record, { returning: true, registrationStatus: status });
 
   logAudit_(
     'MAGIC_LINK_RESENT',
@@ -1008,593 +928,282 @@ function adminResendMagicLink_(
     getAdminActor_()
   );
 
-  return adminSuccess_(
-    'Magic link sent.'
-  );
+  return adminSuccess_('Magic link enviado.');
 }
 
-// -----------------------------------------------------------------------------
-// Cancel
-// -----------------------------------------------------------------------------
+function adminCancelRegistration_(email) {
+  return withAdminLock_(function () {
+    const sheet = getSheet_();
+    const found = findRowByEmail_(sheet, email);
 
-function adminCancelRegistration_(
-  email
-) {
-  return withAdminLock_(
-    function () {
-      const sheet =
-        getSheet_();
+    if (!found) return adminError_('Participante não encontrado.');
 
-      const found =
-        findRowByEmail_(
-          sheet,
-          email
-        );
+    const previousStatus = normalizedRegistrationStatus_(found.record);
+    if (previousStatus === 'cancelled') return adminError_('A inscrição já está cancelada.');
 
-      if (!found) {
-        return adminError_(
-          'Participant not found.'
-        );
-      }
+    const now = new Date();
 
-      const previousStatus =
-        normalizedRegistrationStatus_(
-          found.record
-        );
+    setCells_(sheet, found.row, {
+      registrationStatus: 'cancelled',
+      cancelledAt: now,
+      checkedIn: false,
+      checkedInAt: '',
+      state: 'cancelled',
+    });
 
-      if (
-        previousStatus ===
-        'cancelled'
-      ) {
-        return adminError_(
-          'Registration is already cancelled.'
-        );
-      }
+    found.record.registrationStatus = 'cancelled';
+    found.record.cancelledAt = now;
+    found.record.checkedIn = false;
 
-      const now =
-        new Date();
+    logAudit_(
+      'REGISTRATION_CANCELLED',
+      found.record,
+      previousStatus,
+      'cancelled',
+      'Registration cancelled by administrator.',
+      getAdminActor_()
+    );
 
-      setCells_(
-        sheet,
-        found.row,
-        {
-          registrationStatus:
-            'cancelled',
-
-          cancelledAt:
-            now,
-
-          checkedIn:
-            false,
-
-          checkedInAt:
-            '',
-
-          state:
-            'cancelled',
-        }
-      );
-
-      found.record
-        .registrationStatus =
-        'cancelled';
-
-      found.record
-        .cancelledAt =
-        now;
-
-      found.record
-        .checkedIn =
-        false;
-
-      logAudit_(
-        'REGISTRATION_CANCELLED',
-        found.record,
-        previousStatus,
-        'cancelled',
-        'Registration cancelled by administrator.',
-        getAdminActor_()
-      );
-
-      if (previousStatus === 'confirmed') {
-        promoteNextWaitlistedUnlocked_(sheet, 'Place released by cancellation.');
-      }
-      checkCapacityNotifications_();
-
-      return adminSuccess_(
-        'Registration cancelled.'
-      );
+    if (previousStatus === 'confirmed') {
+      promoteNextWaitlistedUnlocked_(sheet, 'Place released by cancellation.');
     }
-  );
+
+    checkCapacityNotifications_();
+    return adminSuccess_('Inscrição cancelada.');
+  });
 }
 
-// -----------------------------------------------------------------------------
-// Restore
-// -----------------------------------------------------------------------------
+function adminRestoreRegistration_(email) {
+  return withAdminLock_(function () {
+    const sheet = getSheet_();
+    const found = findRowByEmail_(sheet, email);
 
-function adminRestoreRegistration_(
-  email
-) {
-  return withAdminLock_(
-    function () {
-      const sheet =
-        getSheet_();
+    if (!found) return adminError_('Participante não encontrado.');
 
-      const found =
-        findRowByEmail_(
-          sheet,
-          email
-        );
-
-      if (!found) {
-        return adminError_(
-          'Participant not found.'
-        );
-      }
-
-      const previousStatus =
-        normalizedRegistrationStatus_(
-          found.record
-        );
-
-      if (
-        previousStatus !==
-        'cancelled'
-      ) {
-        return adminError_(
-          'Only cancelled registrations can be restored.'
-        );
-      }
-
-      const config = getEventConfig_();
-      const counts = getRegistrationCounts_();
-      const nextStatus = config.maxRegistrations === 0 || counts.registered < config.maxRegistrations ? 'confirmed' : (config.waitlistEnabled && (config.maxWaitlist === 0 || counts.waitlisted < config.maxWaitlist) ? 'waitlisted' : '');
-      if (!nextStatus) return adminError_('No confirmed place or waiting-list place is available.');
-
-      const cvStatus =
-        normalizedCvStatus_(
-          found.record
-        );
-
-      setCells_(
-        sheet,
-        found.row,
-        {
-          registrationStatus:
-            nextStatus,
-
-          cancelledAt:
-            '',
-
-          checkedIn:
-            false,
-
-          checkedInAt:
-            '',
-
-          state:
-            legacyStateFor_(
-              nextStatus,
-              cvStatus
-            ),
-        }
-      );
-
-      found.record
-        .registrationStatus =
-        nextStatus;
-
-      found.record
-        .cancelledAt =
-        '';
-      found.record.checkedIn = false;
-      found.record.checkedInAt = '';
-
-      found.record.state =
-        legacyStateFor_(
-          nextStatus,
-          cvStatus
-        );
-
-      sendMagicLink_(
-        found.record,
-        {
-          returning:
-            true,
-
-          registrationStatus:
-            nextStatus,
-        }
-      );
-
-      logAudit_(
-        'REGISTRATION_RESTORED',
-        found.record,
-        previousStatus,
-        nextStatus,
-        'Cancelled registration restored.',
-        getAdminActor_()
-      );
-      if (nextStatus === 'confirmed') checkCapacityNotifications_();
-
-      return adminSuccess_(
-        nextStatus ===
-          'waitlisted'
-          ? 'Registration restored to the waiting list.'
-          : 'Registration restored and confirmed.'
-      );
+    const previousStatus = normalizedRegistrationStatus_(found.record);
+    if (previousStatus !== 'cancelled') {
+      return adminError_('Só inscrições canceladas podem ser restauradas.');
     }
-  );
-}
 
-// -----------------------------------------------------------------------------
-// Waitlist promotion
-// -----------------------------------------------------------------------------
+    const config = getEventConfig_();
+    const counts = getRegistrationCounts_();
 
-function adminPromoteWaitlist_(
-  email
-) {
-  return withAdminLock_(
-    function () {
-      const sheet =
-        getSheet_();
-
-      const found =
-        findRowByEmail_(
-          sheet,
-          email
-        );
-
-      if (!found) {
-        return adminError_(
-          'Participant not found.'
-        );
-      }
-
-      const previousStatus =
-        normalizedRegistrationStatus_(
-          found.record
-        );
-
-      if (
-        previousStatus !==
-        'waitlisted'
-      ) {
-        return adminError_(
-          'Participant is not on the waiting list.'
-        );
-      }
-
-      const config =
-        getEventConfig_();
-
-      const counts =
-        getRegistrationCounts_();
-
-      if (
-        config.maxRegistrations >
-          0 &&
-        counts.registered >=
-          config.maxRegistrations
-      ) {
-        return adminError_(
-          'There is currently no confirmed place available.'
-        );
-      }
-
-      const cvStatus =
-        normalizedCvStatus_(
-          found.record
-        );
-
-      setCells_(
-        sheet,
-        found.row,
-        {
-          registrationStatus:
-            'confirmed',
-
-          state:
-            legacyStateFor_(
-              'confirmed',
-              cvStatus
-            ),
-        }
-      );
-
-      found.record
-        .registrationStatus =
-        'confirmed';
-
-      found.record.state =
-        legacyStateFor_(
-          'confirmed',
-          cvStatus
-        );
-
-      sendPromotionEmail_(
-        found.record
-      );
-
-      logAudit_(
-        'REGISTRATION_PROMOTED',
-        found.record,
-        previousStatus,
-        'confirmed',
-        'Participant promoted from waiting list.',
-        getAdminActor_()
-      );
-
-      return adminSuccess_(
-        'Participant promoted and confirmation email sent.'
-      );
-    }
-  );
-}
-
-// -----------------------------------------------------------------------------
-// Check-in
-// -----------------------------------------------------------------------------
-
-function adminCheckIn_(
-  email
-) {
-  return withAdminLock_(
-    function () {
-      const sheet =
-        getSheet_();
-
-      const found =
-        findRowByEmail_(
-          sheet,
-          email
-        );
-
-      if (!found) {
-        return adminError_(
-          'Participant not found.'
-        );
-      }
-
-      const previousStatus =
-        normalizedRegistrationStatus_(
-          found.record
-        );
-
-      if (
-        previousStatus ===
-        'cancelled'
-      ) {
-        return adminError_(
-          'Cancelled registrations cannot check in.'
-        );
-      }
-
-      if (
-        previousStatus ===
-        'waitlisted'
-      ) {
-        return adminError_(
-          'Waiting-list participants must be promoted before check-in.'
-        );
-      }
-
-      if (isRecordCheckedIn_(found.record)) {
-        return adminError_(
-          'Participant is already checked in.'
-        );
-      }
-
-      const now =
-        new Date();
-
-      setCells_(
-        sheet,
-        found.row,
-        {
-          checkedIn:
-            true,
-
-          checkedInAt:
-            now,
-
-          state: legacyStateFor_('confirmed', normalizedCvStatus_(found.record)),
-        }
-      );
-
-      found.record.registrationStatus = 'confirmed';
-
-      found.record
-        .checkedIn =
-        true;
-
-      found.record
-        .checkedInAt =
-        now;
-
-      logAudit_(
-        'PARTICIPANT_CHECKED_IN',
-        found.record,
-        previousStatus,
-        'confirmed',
-        'Participant checked in.',
-        getAdminActor_()
-      );
-
-      return adminSuccess_(
-        'Participant checked in.'
-      );
-    }
-  );
-}
-
-function adminUndoCheckIn_(
-  email
-) {
-  return withAdminLock_(
-    function () {
-      const sheet =
-        getSheet_();
-
-      const found =
-        findRowByEmail_(
-          sheet,
-          email
-        );
-
-      if (!found) {
-        return adminError_(
-          'Participant not found.'
-        );
-      }
-
-      const previousStatus =
-        normalizedRegistrationStatus_(
-          found.record
-        );
-
-      if (!isRecordCheckedIn_(found.record)) {
-        return adminError_(
-          'Participant is not checked in.'
-        );
-      }
-
-      const cvStatus =
-        normalizedCvStatus_(
-          found.record
-        );
-
-      setCells_(
-        sheet,
-        found.row,
-        {
-          checkedIn:
-            false,
-
-          checkedInAt:
-            '',
-
-          state:
-            legacyStateFor_(
-              'confirmed',
-              cvStatus
-            ),
-        }
-      );
-
-      found.record.registrationStatus = 'confirmed';
-
-      found.record
-        .checkedIn =
-        false;
-
-      found.record
-        .checkedInAt =
-        '';
-
-      logAudit_(
-        'PARTICIPANT_CHECKIN_REVERSED',
-        found.record,
-        'confirmed',
-        'confirmed',
-        'Participant check-in reversed.',
-        getAdminActor_()
-      );
-
-      return adminSuccess_(
-        'Check-in reversed.'
-      );
-    }
-  );
-}
-
-// -----------------------------------------------------------------------------
-// GDPR delete
-// -----------------------------------------------------------------------------
-
-function adminDeleteParticipantData_(
-  email
-) {
-  return withAdminLock_(
-    function () {
-      const sheet =
-        getSheet_();
-
-      const found =
-        findRowByEmail_(
-          sheet,
-          email
-        );
-
-      if (!found) {
-        return adminError_(
-          'Participant not found.'
-        );
-      }
-
-      const record =
-        found.record;
-
-      const wasConfirmed = normalizedRegistrationStatus_(record) === 'confirmed';
-
-      const auditRecord = {
-        registrationId:
-          record.registrationId ||
-          '',
-
-        email:
-          record.email ||
-          '',
-      };
-
-      if (
-        record.cvFileId
-      ) {
-        try {
-          DriveApp
-            .getFileById(
-              record.cvFileId
-            )
-            .setTrashed(
-              true
-            );
-        } catch (err) {
-          console.warn(
-            'Could not trash participant CV during GDPR deletion: ' +
-            err
+    const nextStatus =
+      config.maxRegistrations === 0 || counts.registered < config.maxRegistrations
+        ? 'confirmed'
+        : (
+            config.waitlistEnabled &&
+            (config.maxWaitlist === 0 || counts.waitlisted < config.maxWaitlist)
+              ? 'waitlisted'
+              : ''
           );
-        }
-      }
 
-      /*
-       * Log before deleting the source row.
-       *
-       * Audit only keeps registrationId / masked target.
-       */
-      logAudit_(
-        'PARTICIPANT_DELETED',
-        auditRecord,
-        normalizedRegistrationStatus_(
-          record
-        ),
-        'deleted',
-        'Participant personal data permanently removed.',
-        getAdminActor_()
-      );
-
-      sheet.deleteRow(
-        found.row
-      );
-
-      if (wasConfirmed) {
-        promoteNextWaitlistedUnlocked_(sheet, 'Place released by GDPR deletion.');
-      }
-
-      return adminSuccess_(
-        'Participant data deleted.'
-      );
+    if (!nextStatus) {
+      return adminError_('Não existe vaga confirmada nem lugar disponível na lista de espera.');
     }
-  );
+
+    const cvStatus = normalizedCvStatus_(found.record);
+
+    setCells_(sheet, found.row, {
+      registrationStatus: nextStatus,
+      cancelledAt: '',
+      checkedIn: false,
+      checkedInAt: '',
+      state: legacyStateFor_(nextStatus, cvStatus),
+    });
+
+    found.record.registrationStatus = nextStatus;
+    found.record.cancelledAt = '';
+    found.record.checkedIn = false;
+    found.record.checkedInAt = '';
+    found.record.state = legacyStateFor_(nextStatus, cvStatus);
+
+    sendMagicLink_(found.record, { returning: true, registrationStatus: nextStatus });
+
+    logAudit_(
+      'REGISTRATION_RESTORED',
+      found.record,
+      previousStatus,
+      nextStatus,
+      'Cancelled registration restored.',
+      getAdminActor_()
+    );
+
+    if (nextStatus === 'confirmed') checkCapacityNotifications_();
+
+    return adminSuccess_(
+      nextStatus === 'waitlisted'
+        ? 'Inscrição restaurada para a lista de espera.'
+        : 'Inscrição restaurada e confirmada.'
+    );
+  });
+}
+
+function adminPromoteWaitlist_(email) {
+  return withAdminLock_(function () {
+    const sheet = getSheet_();
+    const found = findRowByEmail_(sheet, email);
+
+    if (!found) return adminError_('Participante não encontrado.');
+
+    const previousStatus = normalizedRegistrationStatus_(found.record);
+    if (previousStatus !== 'waitlisted') {
+      return adminError_('O participante não está na lista de espera.');
+    }
+
+    const config = getEventConfig_();
+    const counts = getRegistrationCounts_();
+
+    if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
+      return adminError_('Não existe atualmente uma vaga confirmada.');
+    }
+
+    const cvStatus = normalizedCvStatus_(found.record);
+
+    setCells_(sheet, found.row, {
+      registrationStatus: 'confirmed',
+      state: legacyStateFor_('confirmed', cvStatus),
+    });
+
+    found.record.registrationStatus = 'confirmed';
+    found.record.state = legacyStateFor_('confirmed', cvStatus);
+
+    sendPromotionEmail_(found.record);
+
+    logAudit_(
+      'REGISTRATION_PROMOTED',
+      found.record,
+      previousStatus,
+      'confirmed',
+      'Participant promoted from waiting list.',
+      getAdminActor_()
+    );
+
+    return adminSuccess_('Participante promovido e email de confirmação enviado.');
+  });
+}
+
+function adminCheckIn_(email) {
+  return withAdminLock_(function () {
+    const sheet = getSheet_();
+    const found = findRowByEmail_(sheet, email);
+
+    if (!found) return adminError_('Participante não encontrado.');
+
+    const previousStatus = normalizedRegistrationStatus_(found.record);
+
+    if (previousStatus === 'cancelled') {
+      return adminError_('Inscrições canceladas não podem fazer check-in.');
+    }
+
+    if (previousStatus === 'waitlisted') {
+      return adminError_('Participantes em lista de espera têm de ser promovidos antes do check-in.');
+    }
+
+    if (isRecordCheckedIn_(found.record)) {
+      return adminError_('O participante já fez check-in.');
+    }
+
+    const now = new Date();
+
+    setCells_(sheet, found.row, {
+      checkedIn: true,
+      checkedInAt: now,
+      registrationStatus: 'confirmed',
+      state: legacyStateFor_('confirmed', normalizedCvStatus_(found.record)),
+    });
+
+    found.record.registrationStatus = 'confirmed';
+    found.record.checkedIn = true;
+    found.record.checkedInAt = now;
+
+    logAudit_(
+      'PARTICIPANT_CHECKED_IN',
+      found.record,
+      previousStatus,
+      'confirmed',
+      'Participant checked in.',
+      getAdminActor_()
+    );
+
+    return adminSuccess_('Check-in efetuado.');
+  });
+}
+
+function adminUndoCheckIn_(email) {
+  return withAdminLock_(function () {
+    const sheet = getSheet_();
+    const found = findRowByEmail_(sheet, email);
+
+    if (!found) return adminError_('Participante não encontrado.');
+    if (!isRecordCheckedIn_(found.record)) return adminError_('O participante não fez check-in.');
+
+    const cvStatus = normalizedCvStatus_(found.record);
+
+    setCells_(sheet, found.row, {
+      checkedIn: false,
+      checkedInAt: '',
+      registrationStatus: 'confirmed',
+      state: legacyStateFor_('confirmed', cvStatus),
+    });
+
+    found.record.registrationStatus = 'confirmed';
+    found.record.checkedIn = false;
+    found.record.checkedInAt = '';
+
+    logAudit_(
+      'PARTICIPANT_CHECKIN_REVERSED',
+      found.record,
+      'confirmed',
+      'confirmed',
+      'Participant check-in reversed.',
+      getAdminActor_()
+    );
+
+    return adminSuccess_('Check-in anulado.');
+  });
+}
+
+function adminDeleteParticipantData_(email) {
+  return withAdminLock_(function () {
+    const sheet = getSheet_();
+    const found = findRowByEmail_(sheet, email);
+
+    if (!found) return adminError_('Participante não encontrado.');
+
+    const record = found.record;
+    const wasConfirmed = normalizedRegistrationStatus_(record) === 'confirmed';
+
+    const auditRecord = {
+      registrationId: record.registrationId || '',
+      email: record.email || '',
+    };
+
+    if (record.cvFileId) {
+      try {
+        DriveApp.getFileById(record.cvFileId).setTrashed(true);
+      } catch (err) {
+        console.warn('Could not trash participant CV during GDPR deletion: ' + err);
+      }
+    }
+
+    logAudit_(
+      'PARTICIPANT_DELETED',
+      auditRecord,
+      normalizedRegistrationStatus_(record),
+      'deleted',
+      'Participant personal data permanently removed.',
+      getAdminActor_()
+    );
+
+    sheet.deleteRow(found.row);
+
+    if (wasConfirmed) {
+      promoteNextWaitlistedUnlocked_(sheet, 'Place released by GDPR deletion.');
+    }
+
+    return adminSuccess_('Participante eliminado definitivamente.');
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -1602,197 +1211,79 @@ function adminDeleteParticipantData_(
 // -----------------------------------------------------------------------------
 
 function runHealthCheck() {
-  const admin =
-    getOrCreateAdminSheet_();
-
+  const admin = getOrCreateAdminSheet_();
   const results = [];
 
-  [
-    'SHEET_ID',
-    'CV_FOLDER_ID',
-    'SITE_URL',
-    'EVENT_EMAIL',
-  ].forEach(
-    function (
-      key
-    ) {
-      checkProperty_(
-        results,
-        key
-      );
-    }
-  );
+  ['SHEET_ID', 'CV_FOLDER_ID', 'SITE_URL', 'EVENT_EMAIL'].forEach(function (key) {
+    checkProperty_(results, key);
+  });
 
   try {
-    const sheet =
-      getSheet_();
-
-    const map =
-      getHeaderMap_(
-        sheet
-      );
-
-    const missing =
-      HEADERS.filter(
-        function (
-          header
-        ) {
-          return !map[
-            header
-          ];
-        }
-      );
+    const sheet = getSheet_();
+    const map = getHeaderMap_(sheet);
+    const missing = HEADERS.filter(function (header) { return !map[header]; });
 
     results.push([
-      missing.length ===
-        0
-        ? '✓'
-        : '✗',
-
-      missing.length ===
-        0
-        ? 'Registration schema'
-        : (
-            'Missing: ' +
-            missing.join(
-              ', '
-            )
-          ),
+      missing.length === 0 ? '✓' : '✗',
+      missing.length === 0 ? 'Estrutura de inscrições' : ('Em falta: ' + missing.join(', ')),
     ]);
   } catch (err) {
-    results.push([
-      '✗',
-      'Registration sheet',
-    ]);
+    results.push(['✗', 'Folha de inscrições']);
   }
 
   try {
     getSettingsSheet_();
-
-    results.push([
-      '✓',
-      'Settings sheet',
-    ]);
+    results.push(['✓', 'Configurações']);
   } catch (err) {
-    results.push([
-      '✗',
-      'Settings sheet',
-    ]);
+    results.push(['✗', 'Configurações']);
   }
 
   try {
     getAuditSheet_();
-
-    results.push([
-      '✓',
-      'Audit Log',
-    ]);
+    results.push(['✓', 'Registo de auditoria']);
   } catch (err) {
-    results.push([
-      '✗',
-      'Audit Log',
-    ]);
+    results.push(['✗', 'Registo de auditoria']);
   }
 
   try {
-    DriveApp
-      .getFolderById(
-        prop_(
-          'CV_FOLDER_ID'
-        )
-      )
-      .getName();
-
-    results.push([
-      '✓',
-      'CV folder',
-    ]);
+    DriveApp.getFolderById(prop_('CV_FOLDER_ID')).getName();
+    results.push(['✓', 'Pasta de CV']);
   } catch (err) {
-    results.push([
-      '✗',
-      'CV folder',
-    ]);
+    results.push(['✗', 'Pasta de CV']);
   }
 
   try {
-    const version =
-      typeof getSchemaVersion_ ===
-        'function'
-        ? getSchemaVersion_()
-        : 0;
+    const version = typeof getSchemaVersion_ === 'function' ? getSchemaVersion_() : 0;
 
     results.push([
-      version ===
-        CURRENT_SCHEMA_VERSION
-        ? '✓'
-        : '⚠',
-
-      'Schema v' +
-      version +
-      '/' +
-      CURRENT_SCHEMA_VERSION,
+      version === CURRENT_SCHEMA_VERSION ? '✓' : '⚠',
+      'Schema v' + version + '/' + CURRENT_SCHEMA_VERSION,
     ]);
   } catch (err) {
-    results.push([
-      '✗',
-      'Schema version',
-    ]);
+    results.push(['✗', 'Versão do schema']);
   }
 
-  admin
-    .getRange(
-      'D4:E22'
-    )
-    .clearContent();
+  admin.getRange('J27:K40').clearContent();
 
-  admin
-    .getRange(
-      4,
-      4,
-      results.length,
-      2
-    )
-    .setValues(
-      results
-    );
+  if (results.length) {
+    admin.getRange(27, 10, results.length, 2).setValues(results);
+  }
 
   return results;
 }
 
-function checkProperty_(
-  results,
-  key
-) {
-  const value =
-    PropertiesService
-      .getScriptProperties()
-      .getProperty(
-        key
-      );
-
-  results.push([
-    value
-      ? '✓'
-      : '✗',
-
-    key,
-  ]);
+function checkProperty_(results, key) {
+  const value = PropertiesService.getScriptProperties().getProperty(key);
+  results.push([value ? '✓' : '✗', key]);
 }
 
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
 
-function withAdminLock_(
-  callback
-) {
-  const lock =
-    LockService
-      .getScriptLock();
-
-  lock.waitLock(
-    LOCK_TIMEOUT_MS
-  );
+function withAdminLock_(callback) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(LOCK_TIMEOUT_MS);
 
   try {
     return callback();
@@ -1801,47 +1292,21 @@ function withAdminLock_(
   }
 }
 
-function adminSuccess_(
-  message
-) {
-  return {
-    ok:
-      true,
-
-    message:
-      message,
-  };
+function adminSuccess_(message) {
+  return { ok: true, message: message };
 }
 
-function adminError_(
-  message
-) {
-  return {
-    ok:
-      false,
-
-    message:
-      message,
-  };
+function adminError_(message) {
+  return { ok: false, message: message };
 }
 
-function setAdminResult_(
-  message,
-  error
-) {
-  const cell =
-    getOrCreateAdminSheet_()
-      .getRange(
-        ADMIN_RESULT_CELL
-      );
+function setAdminResult_(message, error) {
+  const range = getOrCreateAdminSheet_().getRange(ADMIN_RESULT_CELL + ':K24');
 
-  cell
-    .setValue(
-      message
-    )
-    .setFontColor(
-      error
-        ? '#b91c1c'
-        : '#047857'
-    );
+  range
+    .setValue(message)
+    .setBackground(error ? DETI_SHEET_THEME.red : DETI_SHEET_THEME.accentSoft)
+    .setFontColor(error ? DETI_SHEET_THEME.redText : '#155e75')
+    .setFontWeight('bold')
+    .setFontFamily(DETI_SHEET_THEME.font);
 }
