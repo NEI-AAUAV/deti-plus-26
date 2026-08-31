@@ -36,7 +36,9 @@ function refreshControlCenter_() {
 
   const statistics =
     buildRegistrationStatistics_(
-      rows
+      rows,
+      config.timezone ||
+        DEFAULT_EVENT_TIMEZONE
     );
 
   formatRegistrationSheet_(
@@ -97,7 +99,8 @@ function refreshControlCenter_() {
 // -----------------------------------------------------------------------------
 
 function buildRegistrationStatistics_(
-  rows
+  rows,
+  timezone
 ) {
   const stats = {
     totalRows:
@@ -156,31 +159,42 @@ function buildRegistrationStatistics_(
           .trim()
           .toLowerCase();
 
+      /*
+       * Cancelled registrations remain visible in totalRows and in the
+       * dedicated cancelled counter, but they are not active event
+       * participants and therefore must not affect:
+       *
+       * - CV coverage
+       * - course statistics
+       * - academic-year statistics
+       * - registrations-by-day statistics
+       */
       if (
         state ===
         'cancelled'
       ) {
         stats.cancelled++;
-      } else {
-        stats.activeRows++;
+        return;
+      }
 
-        if (
-          state ===
-          'waitlisted'
-        ) {
-          stats.waitlisted++;
-        } else {
-          /*
-           * Backwards compatibility:
-           *
-           * registered
-           * cv_delivered
-           * blank legacy state
-           *
-           * are all confirmed.
-           */
-          stats.confirmed++;
-        }
+      stats.activeRows++;
+
+      if (
+        state ===
+        'waitlisted'
+      ) {
+        stats.waitlisted++;
+      } else {
+        /*
+         * Backwards compatibility:
+         *
+         * registered
+         * cv_delivered
+         * blank legacy state
+         *
+         * are all confirmed.
+         */
+        stats.confirmed++;
       }
 
       if (
@@ -234,7 +248,8 @@ function buildRegistrationStatistics_(
           const day =
             Utilities.formatDate(
               date,
-              DEFAULT_EVENT_TIMEZONE,
+              timezone ||
+                DEFAULT_EVENT_TIMEZONE,
               'yyyy-MM-dd'
             );
 
@@ -646,12 +661,18 @@ function renderDashboardSheet_(
     ).toUpperCase()
   );
 
+  /*
+   * CV coverage is based on active participants only.
+   *
+   * Cancelled registrations remain in totalRows for audit/history purposes,
+   * but should not reduce the operational CV completion percentage.
+   */
   const cvRate =
-    stats.totalRows > 0
+    stats.activeRows > 0
       ? Math.round(
           (
             stats.withCv /
-            stats.totalRows
+            stats.activeRows
           ) * 1000
         ) / 10
       : 0;
