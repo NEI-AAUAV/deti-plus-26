@@ -51,6 +51,7 @@ function migrateSystem() {
       sheet = ss.insertSheet(SHEET_NAME);
       sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
       setSchemaVersion_(CURRENT_SCHEMA_VERSION);
+      if (typeof rebuildRegistrationCounters_ === 'function') rebuildRegistrationCounters_();
 
       console.log('[migration] Fresh Registration sheet created.');
 
@@ -84,6 +85,7 @@ function migrateSystem() {
 
     setSchemaVersion_(CURRENT_SCHEMA_VERSION);
     SpreadsheetApp.flush();
+    if (typeof rebuildRegistrationCounters_ === 'function') rebuildRegistrationCounters_();
 
     console.log('[migration] Completed successfully. Schema v' + CURRENT_SCHEMA_VERSION);
 

@@ -7,6 +7,12 @@
 
 const SETTINGS_SHEET_NAME = 'Settings';
 const DEFAULT_EVENT_TIMEZONE = 'Europe/Lisbon';
+const REGISTRATION_STATUS_CACHE_KEY = 'registration_status_v1';
+const REGISTRATION_STATUS_CACHE_TTL_SECONDS = 30;
+const EVENT_CONFIG_CACHE_KEY = 'event_config_v1';
+const EVENT_CONFIG_CACHE_TTL_SECONDS = 300;
+const REGISTRATION_COUNTERS_PROPERTY_KEY = 'registration_counters_v1';
+const REGISTRATION_COUNTERS_LOCK_TIMEOUT_MS = 5000;
 
 /**
  * The internal key is deliberately kept separate from the human label.
@@ -106,9 +112,20 @@ const SETTINGS_DEFINITIONS = [
 ];
 
 function getEventConfig_() {
-  const settings = getSettingsMap_();
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(EVENT_CONFIG_CACHE_KEY);
 
-  return {
+  if (cached) {
+    try {
+      return deserializeEventConfig_(JSON.parse(cached));
+    } catch (err) {
+      console.warn('Ignoring invalid event configuration cache: ' + err);
+      cache.remove(EVENT_CONFIG_CACHE_KEY);
+    }
+  }
+
+  const settings = getSettingsMap_();
+  const config = {
     registrationEnabled: settingBoolean_(settings.registrationEnabled, true),
     registrationOpensAt: settingDate_(settings.registrationOpensAt),
     registrationClosesAt: settingDate_(settings.registrationClosesAt),
@@ -121,10 +138,37 @@ function getEventConfig_() {
     timezone: settingText_(settings.timezone, DEFAULT_EVENT_TIMEZONE),
     dataRetentionUntil: settingDate_(settings.dataRetentionUntil),
   };
+
+  cache.put(EVENT_CONFIG_CACHE_KEY, JSON.stringify(serializeEventConfig_(config)), EVENT_CONFIG_CACHE_TTL_SECONDS);
+  return config;
 }
 
-function validateEventConfig_() {
-  const config = getEventConfig_();
+function serializeEventConfig_(config) {
+  const serialized = Object.assign({}, config);
+  ['registrationOpensAt', 'registrationClosesAt', 'cvDeadline', 'dataRetentionUntil'].forEach(function (key) {
+    serialized[key] = config[key] ? config[key].toISOString() : null;
+  });
+  return serialized;
+}
+
+function deserializeEventConfig_(config) {
+  const restored = Object.assign({}, config);
+  ['registrationOpensAt', 'registrationClosesAt', 'cvDeadline', 'dataRetentionUntil'].forEach(function (key) {
+    restored[key] = settingDate_(restored[key]);
+  });
+  return restored;
+}
+
+function invalidateEventConfigCache_() {
+  CacheService.getScriptCache().remove(EVENT_CONFIG_CACHE_KEY);
+}
+
+function invalidateRegistrationStatusCache_() {
+  CacheService.getScriptCache().remove(REGISTRATION_STATUS_CACHE_KEY);
+}
+
+function validateEventConfig_(config) {
+  config = config || getEventConfig_();
   const issues = [];
 
   if (!config.timezone) {
@@ -154,12 +198,12 @@ function validateEventConfig_() {
   return issues;
 }
 
-function getRegistrationState_() {
-  const config = getEventConfig_();
-  const counts = getRegistrationCounts_();
+function getRegistrationState_(config, counts) {
+  config = config || getEventConfig_();
+  counts = counts || getRegistrationCounters_();
   const now = new Date();
 
-  if (validateEventConfig_().some(function (issue) { return issue.level === 'error'; })) {
+  if (validateEventConfig_(config).some(function (issue) { return issue.level === 'error'; })) {
     return {
       state: 'closed',
       capacity: config.maxRegistrations,
@@ -167,8 +211,8 @@ function getRegistrationState_() {
       waitlisted: counts.waitlisted,
       remaining: null,
       percentage: null,
-      opensAt: config.registrationOpensAt,
-      closesAt: config.registrationClosesAt,
+      opensAt: config.registrationOpensAt ? config.registrationOpensAt.toISOString() : null,
+      closesAt: config.registrationClosesAt ? config.registrationClosesAt.toISOString() : null,
       waitlistEnabled: config.waitlistEnabled,
       maxWaitlist: config.maxWaitlist,
       eventName: config.eventName,
@@ -219,7 +263,21 @@ function getRegistrationState_() {
 }
 
 function handleRegistrationStatus_() {
-  return ok_(getRegistrationState_());
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(REGISTRATION_STATUS_CACHE_KEY);
+
+  if (cached) {
+    try {
+      return ok_(JSON.parse(cached));
+    } catch (err) {
+      console.warn('Ignoring invalid registration status cache: ' + err);
+      cache.remove(REGISTRATION_STATUS_CACHE_KEY);
+    }
+  }
+
+  const state = getRegistrationState_();
+  cache.put(REGISTRATION_STATUS_CACHE_KEY, JSON.stringify(state), REGISTRATION_STATUS_CACHE_TTL_SECONDS);
+  return ok_(state);
 }
 
 function getRegistrationAdmission_(availability) {
@@ -273,46 +331,111 @@ function registrationStatusFromRecord_(record) {
 }
 
 function getRegistrationCounts_() {
-  const sheet = getSheet_();
-  const rows = readRecords_(sheet);
+  return getRegistrationCounters_();
+}
 
-  let registered = 0;
-  let waitlisted = 0;
-  let cancelled = 0;
-  let checkedIn = 0;
+function emptyRegistrationCounters_() {
+  return { registered: 0, waitlisted: 0, cancelled: 0, checkedIn: 0 };
+}
 
-  rows.forEach(function (entry) {
-    const record = entry.record;
+function getRegistrationCounters_(options) {
+  options = options || {};
+  const properties = PropertiesService.getScriptProperties();
+  const raw = properties.getProperty(REGISTRATION_COUNTERS_PROPERTY_KEY);
 
-    if (!String(record.email || '').trim() && !String(record.token || '').trim()) {
-      return;
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      return {
+        registered: Math.max(0, Number(parsed.registered) || 0),
+        waitlisted: Math.max(0, Number(parsed.waitlisted) || 0),
+        cancelled: Math.max(0, Number(parsed.cancelled) || 0),
+        checkedIn: Math.max(0, Number(parsed.checkedIn) || 0),
+      };
+    } catch (err) {
+      console.warn('Ignoring invalid registration counters: ' + err);
     }
+  }
 
-    const status = normalizedRegistrationStatus_(record);
+  // Registration/admin callers already own the script lock. Do not attempt to
+  // acquire it again during first-run recovery.
+  if (options.lockHeld) return rebuildRegistrationCounters_({ lockHeld: true });
 
-    if (status === 'cancelled') {
-      cancelled++;
-      return;
-    }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(REGISTRATION_COUNTERS_LOCK_TIMEOUT_MS);
+  try {
+    // Another request may have rebuilt while this request waited for the lock.
+    if (properties.getProperty(REGISTRATION_COUNTERS_PROPERTY_KEY)) return getRegistrationCounters_();
+    return rebuildRegistrationCounters_({ lockHeld: true });
+  } finally {
+    lock.releaseLock();
+  }
+}
 
-    if (status === 'waitlisted') {
-      waitlisted++;
-      return;
-    }
-
-    if (isRecordCheckedIn_(record)) {
-      checkedIn++;
-    }
-
-    registered++;
-  });
-
-  return {
-    registered: registered,
-    waitlisted: waitlisted,
-    cancelled: cancelled,
-    checkedIn: checkedIn,
+function setRegistrationCounters_(counters) {
+  const normalized = {
+    registered: Math.max(0, Number(counters.registered) || 0),
+    waitlisted: Math.max(0, Number(counters.waitlisted) || 0),
+    cancelled: Math.max(0, Number(counters.cancelled) || 0),
+    checkedIn: Math.max(0, Number(counters.checkedIn) || 0),
   };
+  PropertiesService.getScriptProperties().setProperty(REGISTRATION_COUNTERS_PROPERTY_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function updateRegistrationCountersForTransition_(previousStatus, nextStatus, wasCheckedIn, isCheckedIn, options) {
+  const counters = getRegistrationCounters_(options);
+  const changes = emptyRegistrationCounters_();
+  const applyStatus = function (status, direction) {
+    if (status === 'confirmed') changes.registered += direction;
+    else if (status === 'waitlisted') changes.waitlisted += direction;
+    else if (status === 'cancelled') changes.cancelled += direction;
+  };
+  applyStatus(previousStatus, -1);
+  applyStatus(nextStatus, 1);
+  if (wasCheckedIn) changes.checkedIn--;
+  if (isCheckedIn) changes.checkedIn++;
+  return setRegistrationCounters_({
+    registered: counters.registered + changes.registered,
+    waitlisted: counters.waitlisted + changes.waitlisted,
+    cancelled: counters.cancelled + changes.cancelled,
+    checkedIn: counters.checkedIn + changes.checkedIn,
+  });
+}
+
+function rebuildRegistrationCounters_(options) {
+  options = options || {};
+  const sheet = getSheet_();
+  const map = getHeaderMap_(sheet);
+  const lastRow = sheet.getLastRow();
+  const counters = emptyRegistrationCounters_();
+  if (lastRow < 2) return setRegistrationCounters_(counters);
+
+  const rowCount = lastRow - 1;
+  const valuesFor = function (column) {
+    return column ? sheet.getRange(2, column, rowCount, 1).getValues() : Array.from({ length: rowCount }, function () { return ['']; });
+  };
+  const emails = valuesFor(map.email);
+  const tokens = valuesFor(map.token);
+  const statuses = valuesFor(map.registrationStatus);
+  const legacyStates = valuesFor(map.state);
+  const checkedIns = valuesFor(map.checkedIn);
+
+  for (let i = 0; i < rowCount; i++) {
+    if (!String(emails[i][0] || '').trim() && !String(tokens[i][0] || '').trim()) continue;
+    const status = normalizedRegistrationStatus_({ registrationStatus: statuses[i][0], state: legacyStates[i][0] });
+    if (status === 'cancelled') counters.cancelled++;
+    else if (status === 'waitlisted') counters.waitlisted++;
+    else {
+      counters.registered++;
+      if (isRecordCheckedIn_({ checkedIn: checkedIns[i][0], registrationStatus: status })) counters.checkedIn++;
+    }
+  }
+
+  const result = setRegistrationCounters_(counters);
+  invalidateRegistrationStatusCache_();
+  console.log('Registration counters rebuilt: ' + JSON.stringify(result));
+  return result;
 }
 
 function settingBoolean_(value, fallback) {

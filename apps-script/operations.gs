@@ -160,7 +160,7 @@ function waitlistEntriesSorted_(sheet) {
 
 function promoteNextWaitlistedUnlocked_(sheet, reason) {
   const config = getEventConfig_();
-  const counts = getRegistrationCounts_();
+  const counts = getRegistrationCounters_({ lockHeld: true });
 
   if (config.maxRegistrations <= 0 || counts.registered >= config.maxRegistrations) {
     return null;
@@ -183,6 +183,9 @@ function promoteNextWaitlistedUnlocked_(sheet, reason) {
   next.record.checkedIn = false;
   next.record.checkedInAt = '';
 
+  updateRegistrationCountersForTransition_('waitlisted', 'confirmed', false, false, { lockHeld: true });
+  invalidateRegistrationStatusCache_();
+
   logAudit_(
     'REGISTRATION_PROMOTED',
     next.record,
@@ -204,7 +207,7 @@ function promoteNextWaitlisted() {
 
 function checkCapacityNotifications_() {
   const config = getEventConfig_();
-  const counts = getRegistrationCounts_();
+  const counts = getRegistrationCounters_();
 
   if (!config.maxRegistrations) return;
 
@@ -415,6 +418,7 @@ function ensureTimeTrigger_(handler, minutes) {
 function installOperationalTriggers() {
   ensureAdminEditTrigger_();
   ensureRegistrationEditTrigger_();
+  ensureSettingsEditTrigger_();
   ensureTimeTrigger_('processEmailQueue', 5);
   ensureTimeTrigger_('refreshControlCenterScheduled_', 15);
 

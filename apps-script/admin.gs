@@ -92,6 +92,7 @@ function initializeOperations() {
   getAuditSheet_();
   initializeAdminSheet_();
   formatRegistrationSheet_(registrationSheet);
+  rebuildRegistrationCounters_();
 
   if (typeof refreshControlCenter_ === 'function') refreshControlCenter_();
 
@@ -302,6 +303,10 @@ function ensureRegistrationEditTrigger_() {
   ensureSpreadsheetTrigger_('handleRegistrationEdit_');
 }
 
+function ensureSettingsEditTrigger_() {
+  ensureSpreadsheetTrigger_('handleSettingsEdit_');
+}
+
 function ensureSpreadsheetTrigger_(handler) {
   const ss = getSpreadsheet_();
 
@@ -349,6 +354,12 @@ function handleAdminEdit_(e) {
 // Registration sheet edit
 // -----------------------------------------------------------------------------
 
+function handleSettingsEdit_(e) {
+  if (!e || !e.range || e.range.getSheet().getName() !== SETTINGS_SHEET_NAME) return;
+  invalidateEventConfigCache_();
+  invalidateRegistrationStatusCache_();
+}
+
 function handleRegistrationEdit_(e) {
   if (!e || !e.range) return;
 
@@ -371,6 +382,7 @@ function handleRegistrationEdit_(e) {
 
   const record = entry.record;
   const previousStatus = normalizedRegistrationStatus_(record);
+  const wasCheckedIn = isRecordCheckedIn_(record);
 
   if (previousStatus === 'cancelled') {
     e.range.setValue(false);
@@ -394,6 +406,9 @@ function handleRegistrationEdit_(e) {
     record.registrationStatus = 'confirmed';
     record.state = legacyStateFor_('confirmed', normalizedCvStatus_(record));
 
+    updateRegistrationCountersForTransition_(previousStatus, 'confirmed', wasCheckedIn, true);
+    invalidateRegistrationStatusCache_();
+
     logAudit_(
       'PARTICIPANT_CHECKED_IN',
       record,
@@ -413,6 +428,9 @@ function handleRegistrationEdit_(e) {
     record.checkedIn = false;
     record.checkedInAt = '';
     record.registrationStatus = 'confirmed';
+
+    updateRegistrationCountersForTransition_(previousStatus, 'confirmed', wasCheckedIn, false);
+    invalidateRegistrationStatusCache_();
 
     logAudit_(
       'PARTICIPANT_CHECKIN_REVERSED',
@@ -764,7 +782,7 @@ function adminCreateRegistration_() {
 
     if (status === 'confirmed') {
       const config = getEventConfig_();
-      const counts = getRegistrationCounts_();
+      const counts = getRegistrationCounters_({ lockHeld: true });
 
       if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
         return adminError_('A lotação está cheia. Crie a inscrição como waitlisted ou liberte uma vaga.');
@@ -801,6 +819,8 @@ function adminCreateRegistration_() {
     };
 
     appendRegistration_(sheet, record);
+    updateRegistrationCountersForTransition_('', status, false, false, { lockHeld: true });
+    invalidateRegistrationStatusCache_();
 
     logAudit_(
       'REGISTRATION_CREATED',
@@ -854,7 +874,7 @@ function adminSaveRegistration_(registrationId) {
 
     if (previousStatus !== 'confirmed' && nextStatus === 'confirmed') {
       const config = getEventConfig_();
-      const counts = getRegistrationCounts_();
+      const counts = getRegistrationCounters_({ lockHeld: true });
 
       if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
         return adminError_('Não existe uma vaga confirmada disponível.');
@@ -881,6 +901,14 @@ function adminSaveRegistration_(registrationId) {
     };
 
     setCells_(sheet, found.row, updates);
+    updateRegistrationCountersForTransition_(
+      previousStatus,
+      nextStatus,
+      isRecordCheckedIn_(current),
+      nextStatus === 'cancelled' ? false : isRecordCheckedIn_(current),
+      { lockHeld: true }
+    );
+    invalidateRegistrationStatusCache_();
 
     const auditRecord = Object.assign({}, current, updates);
 
@@ -940,6 +968,7 @@ function adminCancelRegistration_(email) {
 
     const previousStatus = normalizedRegistrationStatus_(found.record);
     if (previousStatus === 'cancelled') return adminError_('A inscrição já está cancelada.');
+    const wasCheckedIn = isRecordCheckedIn_(found.record);
 
     const now = new Date();
 
@@ -954,6 +983,9 @@ function adminCancelRegistration_(email) {
     found.record.registrationStatus = 'cancelled';
     found.record.cancelledAt = now;
     found.record.checkedIn = false;
+
+    updateRegistrationCountersForTransition_(previousStatus, 'cancelled', wasCheckedIn, false, { lockHeld: true });
+    invalidateRegistrationStatusCache_();
 
     logAudit_(
       'REGISTRATION_CANCELLED',
@@ -986,7 +1018,7 @@ function adminRestoreRegistration_(email) {
     }
 
     const config = getEventConfig_();
-    const counts = getRegistrationCounts_();
+    const counts = getRegistrationCounters_({ lockHeld: true });
 
     const nextStatus =
       config.maxRegistrations === 0 || counts.registered < config.maxRegistrations
@@ -1017,6 +1049,9 @@ function adminRestoreRegistration_(email) {
     found.record.checkedIn = false;
     found.record.checkedInAt = '';
     found.record.state = legacyStateFor_(nextStatus, cvStatus);
+
+    updateRegistrationCountersForTransition_('cancelled', nextStatus, false, false, { lockHeld: true });
+    invalidateRegistrationStatusCache_();
 
     sendMagicLink_(found.record, { returning: true, registrationStatus: nextStatus });
 
@@ -1052,7 +1087,7 @@ function adminPromoteWaitlist_(email) {
     }
 
     const config = getEventConfig_();
-    const counts = getRegistrationCounts_();
+    const counts = getRegistrationCounters_({ lockHeld: true });
 
     if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
       return adminError_('Não existe atualmente uma vaga confirmada.');
@@ -1067,6 +1102,9 @@ function adminPromoteWaitlist_(email) {
 
     found.record.registrationStatus = 'confirmed';
     found.record.state = legacyStateFor_('confirmed', cvStatus);
+
+    updateRegistrationCountersForTransition_('waitlisted', 'confirmed', false, false, { lockHeld: true });
+    invalidateRegistrationStatusCache_();
 
     sendPromotionEmail_(found.record);
 
@@ -1117,6 +1155,9 @@ function adminCheckIn_(email) {
     found.record.checkedIn = true;
     found.record.checkedInAt = now;
 
+    updateRegistrationCountersForTransition_(previousStatus, 'confirmed', false, true, { lockHeld: true });
+    invalidateRegistrationStatusCache_();
+
     logAudit_(
       'PARTICIPANT_CHECKED_IN',
       found.record,
@@ -1151,6 +1192,9 @@ function adminUndoCheckIn_(email) {
     found.record.checkedIn = false;
     found.record.checkedInAt = '';
 
+    updateRegistrationCountersForTransition_('confirmed', 'confirmed', true, false, { lockHeld: true });
+    invalidateRegistrationStatusCache_();
+
     logAudit_(
       'PARTICIPANT_CHECKIN_REVERSED',
       found.record,
@@ -1172,7 +1216,9 @@ function adminDeleteParticipantData_(email) {
     if (!found) return adminError_('Participante não encontrado.');
 
     const record = found.record;
-    const wasConfirmed = normalizedRegistrationStatus_(record) === 'confirmed';
+    const previousStatus = normalizedRegistrationStatus_(record);
+    const wasConfirmed = previousStatus === 'confirmed';
+    const wasCheckedIn = isRecordCheckedIn_(record);
 
     const auditRecord = {
       registrationId: record.registrationId || '',
@@ -1197,6 +1243,8 @@ function adminDeleteParticipantData_(email) {
     );
 
     sheet.deleteRow(found.row);
+    updateRegistrationCountersForTransition_(previousStatus, '', wasCheckedIn, false, { lockHeld: true });
+    invalidateRegistrationStatusCache_();
 
     if (wasConfirmed) {
       promoteNextWaitlistedUnlocked_(sheet, 'Place released by GDPR deletion.');

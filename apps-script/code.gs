@@ -282,8 +282,9 @@ function handleRegister_(
       );
     }
 
-    const availability =
-      getRegistrationState_();
+    const config = getEventConfig_();
+    const counters = getRegistrationCounters_({ lockHeld: true });
+    const availability = getRegistrationState_(config, counters);
 
     const admission =
       getRegistrationAdmission_(
@@ -395,6 +396,9 @@ function handleRegister_(
       sheet,
       record
     );
+
+    updateRegistrationCountersForTransition_('', registrationStatus, false, false, { lockHeld: true });
+    invalidateRegistrationStatusCache_();
 
     const row =
       sheet.getLastRow();
