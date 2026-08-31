@@ -67,7 +67,7 @@ test.describe("registration form", () => {
   });
 
   test("blocks submission and reports invalid fields", async ({ page }) => {
-    const calls = await stubScript(page, { body: { ok: true } });
+    const calls = await stubScript(page, { responses: { registration_status: openAvailability } });
     await page.goto("registration/index.html");
 
     await page.getByRole("button", { name: /confirm registration/i }).click();
@@ -78,7 +78,7 @@ test.describe("registration form", () => {
     expect(calls, "only availability should reach the server").toHaveLength(1);
   });
 
-  test("surfaces a server-side rejection", async ({ page }) => {
+  test("handles a full-registration race without showing success", async ({ page }) => {
     await stubScript(page, { responses: {
       registration_status: openAvailability,
       register: { ok: false, error: "registration_full", message: "All available places have been filled." },
@@ -90,6 +90,7 @@ test.describe("registration form", () => {
     await page.getByRole("button", { name: /confirm registration/i }).click();
 
     await expect(page.getByText("All available places have been filled.")).toBeVisible();
+    await expect(page.getByText(/registration confirmed/i)).toHaveCount(0);
   });
 
   test("treats an already registered email as success", async ({ page }) => {
@@ -107,7 +108,7 @@ test.describe("registration form", () => {
   });
 
   test("requires CV-sharing consent when a CV is selected", async ({ page }) => {
-    const calls = await stubScript(page, { body: { ok: true } });
+    const calls = await stubScript(page, { responses: { registration_status: openAvailability } });
     await page.goto("registration/index.html");
     await fillValidForm(page);
     await page.locator("#cv").setInputFiles({
@@ -143,14 +144,14 @@ test.describe("registration form", () => {
   });
 
   test("shows availability states before exposing the form", async ({ page }) => {
-    await stubScript(page, { body: { ...openAvailability, state: "almost_full", remaining: 2 } });
+    await stubScript(page, { responses: { registration_status: { ...openAvailability, state: "almost_full", remaining: 2 } } });
     await page.goto("registration/index.html");
     await expect(page.getByText("Only 2 places remain.")).toBeVisible();
     await expect(page.getByRole("button", { name: /confirm registration/i })).toBeVisible();
   });
 
   test("shows a full event without the form", async ({ page }) => {
-    await stubScript(page, { body: { ...openAvailability, state: "full", registered: 500, remaining: 0 } });
+    await stubScript(page, { responses: { registration_status: { ...openAvailability, state: "full", registered: 500, remaining: 0 } } });
     await page.goto("registration/index.html");
     await expect(page.getByRole("heading", { name: /registrations are full/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /confirm registration/i })).toHaveCount(0);
@@ -169,7 +170,7 @@ test.describe("registration form", () => {
   });
 
   test("keeps the form hidden before registration opens", async ({ page }) => {
-    await stubScript(page, { body: { ...openAvailability, state: "not_started", opensAt: "2026-05-01T10:30:00.000Z" } });
+    await stubScript(page, { responses: { registration_status: { ...openAvailability, state: "not_started", opensAt: "2026-05-01T10:30:00.000Z" } } });
     await page.goto("registration/index.html");
     await expect(page.getByRole("heading", { name: /not open yet/i })).toBeVisible();
     await expect(page.getByText(/Registrations open on 1 May 2026/i)).toBeVisible();
@@ -177,9 +178,38 @@ test.describe("registration form", () => {
   });
 
   test("keeps the form hidden after registration closes", async ({ page }) => {
-    await stubScript(page, { body: { ...openAvailability, state: "closed" } });
+    await stubScript(page, { responses: { registration_status: { ...openAvailability, state: "closed" } } });
     await page.goto("registration/index.html");
     await expect(page.getByRole("heading", { name: /registrations are closed/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /confirm registration/i })).toHaveCount(0);
+  });
+
+  test("keeps the form hidden while registrations are disabled", async ({ page }) => {
+    await stubScript(page, { responses: { registration_status: { ...openAvailability, state: "disabled" } } });
+    await page.goto("registration/index.html");
+    await expect(page.getByRole("heading", { name: /temporarily unavailable/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /confirm registration/i })).toHaveCount(0);
+  });
+
+  test("fails closed when availability cannot be loaded and retries", async ({ page }) => {
+    let requests = 0;
+    await page.route(SCRIPT_HOST, async (route) => {
+      const payload = JSON.parse(route.request().postData() ?? "{}");
+      if (payload.action !== "registration_status") throw new Error("Unexpected request");
+      requests += 1;
+      await route.fulfill({ status: requests === 1 ? 500 : 200, contentType: "application/json", body: JSON.stringify(openAvailability) });
+    });
+    await page.goto("registration/index.html");
+    await expect(page.getByRole("heading", { name: /unable to check availability/i })).toBeVisible();
+    await page.getByRole("button", { name: /try again/i }).click();
+    await expect(page.getByRole("button", { name: /confirm registration/i })).toBeVisible();
+    expect(requests).toBe(2);
+  });
+
+  test("fails closed for an invalid availability response", async ({ page }) => {
+    await stubScript(page, { responses: { registration_status: { ok: true } } });
+    await page.goto("registration/index.html");
+    await expect(page.getByRole("heading", { name: /unable to check availability/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /confirm registration/i })).toHaveCount(0);
   });
 });
