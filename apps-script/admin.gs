@@ -9,19 +9,22 @@ const ADMIN_EMAIL_CELL =
   'B3';
 
 const ADMIN_ACTION_CELL =
-  'B16';
+  'B18';
 
 const ADMIN_CONFIRM_CELL =
-  'B17';
+  'B19';
 
 const ADMIN_RESULT_CELL =
-  'B19';
+  'B21';
 
 const ADMIN_ACTIONS = [
   'RESEND_MAGIC_LINK',
   'CANCEL_REGISTRATION',
   'RESTORE_REGISTRATION',
   'PROMOTE_WAITLIST',
+  'CHECK_IN',
+  'UNDO_CHECK_IN',
+  'DELETE_PARTICIPANT_DATA',
 ];
 
 // -----------------------------------------------------------------------------
@@ -29,11 +32,27 @@ const ADMIN_ACTIONS = [
 // -----------------------------------------------------------------------------
 
 function initializeOperations() {
-  getSheet_();
+  /*
+   * Migrate before exposing the operational sheets.
+   */
+  if (
+    typeof migrateSystem ===
+    'function'
+  ) {
+    migrateSystem();
+  }
+
+  const registrationSheet =
+    getSheet_();
+
   getSettingsSheet_();
   getAuditSheet_();
 
   initializeAdminSheet_();
+
+  formatRegistrationSheet_(
+    registrationSheet
+  );
 
   if (
     typeof refreshControlCenter_ ===
@@ -43,6 +62,7 @@ function initializeOperations() {
   }
 
   ensureAdminEditTrigger_();
+  ensureRegistrationEditTrigger_();
 
   runHealthCheck();
 
@@ -68,19 +88,40 @@ function initializeAdminSheet_() {
   }
 
   sheet.clear();
-  sheet.setHiddenGridlines(true);
+  sheet.setHiddenGridlines(
+    true
+  );
 
   ensureSheetSize_(
     sheet,
-    40,
+    45,
     6
   );
 
-  sheet.setColumnWidth(1, 220);
-  sheet.setColumnWidth(2, 360);
-  sheet.setColumnWidth(3, 40);
-  sheet.setColumnWidth(4, 210);
-  sheet.setColumnWidth(5, 300);
+  sheet.setColumnWidth(
+    1,
+    220
+  );
+
+  sheet.setColumnWidth(
+    2,
+    360
+  );
+
+  sheet.setColumnWidth(
+    3,
+    40
+  );
+
+  sheet.setColumnWidth(
+    4,
+    210
+  );
+
+  sheet.setColumnWidth(
+    5,
+    300
+  );
 
   sheet
     .getRange(
@@ -135,14 +176,16 @@ function initializeAdminSheet_() {
     );
 
   const labels = [
+    ['Registration ID'],
     ['Name'],
     ['Email'],
     ['Course'],
     ['Academic year'],
-    ['Status'],
+    ['Registration status'],
+    ['CV status'],
     ['CV'],
     ['CV updated'],
-    ['Magic link token'],
+    ['Checked in'],
   ];
 
   sheet
@@ -162,16 +205,9 @@ function initializeAdminSheet_() {
       '#6b7280'
     );
 
-  /*
-   * Token stays hidden.
-   */
-  sheet.hideRows(
-    12
-  );
-
   sheet
     .getRange(
-      'A14:E14'
+      'A16:E16'
     )
     .merge()
     .setValue(
@@ -186,7 +222,7 @@ function initializeAdminSheet_() {
 
   sheet
     .getRange(
-      'A16'
+      'A18'
     )
     .setValue(
       'Action'
@@ -217,7 +253,7 @@ function initializeAdminSheet_() {
 
   sheet
     .getRange(
-      'A17'
+      'A19'
     )
     .setValue(
       'Confirm'
@@ -234,7 +270,7 @@ function initializeAdminSheet_() {
 
   sheet
     .getRange(
-      'A19'
+      'A21'
     )
     .setValue(
       'Result'
@@ -273,7 +309,25 @@ function initializeAdminSheet_() {
   return sheet;
 }
 
+// -----------------------------------------------------------------------------
+// Triggers
+// -----------------------------------------------------------------------------
+
 function ensureAdminEditTrigger_() {
+  ensureSpreadsheetTrigger_(
+    'handleAdminEdit_'
+  );
+}
+
+function ensureRegistrationEditTrigger_() {
+  ensureSpreadsheetTrigger_(
+    'handleRegistrationEdit_'
+  );
+}
+
+function ensureSpreadsheetTrigger_(
+  handler
+) {
   const ss =
     getSpreadsheet_();
 
@@ -287,7 +341,7 @@ function ensureAdminEditTrigger_() {
           return (
             trigger
               .getHandlerFunction() ===
-            'handleAdminEdit_'
+            handler
           );
         }
       );
@@ -298,7 +352,7 @@ function ensureAdminEditTrigger_() {
 
   ScriptApp
     .newTrigger(
-      'handleAdminEdit_'
+      handler
     )
     .forSpreadsheet(
       ss
@@ -308,7 +362,7 @@ function ensureAdminEditTrigger_() {
 }
 
 // -----------------------------------------------------------------------------
-// Edit trigger
+// Admin sheet edit
 // -----------------------------------------------------------------------------
 
 function handleAdminEdit_(e) {
@@ -330,14 +384,14 @@ function handleAdminEdit_(e) {
   }
 
   const a1 =
-    e.range.getA1Notation();
+    e.range
+      .getA1Notation();
 
   if (
     a1 ===
     ADMIN_EMAIL_CELL
   ) {
     loadAdminParticipant_();
-
     return;
   }
 
@@ -349,7 +403,8 @@ function handleAdminEdit_(e) {
   }
 
   if (
-    e.value !== 'TRUE'
+    e.value !==
+    'TRUE'
   ) {
     return;
   }
@@ -364,6 +419,200 @@ function handleAdminEdit_(e) {
       .setValue(
         false
       );
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Registration sheet edit
+// -----------------------------------------------------------------------------
+
+function handleRegistrationEdit_(e) {
+  if (
+    !e ||
+    !e.range
+  ) {
+    return;
+  }
+
+  const sheet =
+    e.range.getSheet();
+
+  if (
+    sheet.getName() !==
+    SHEET_NAME
+  ) {
+    return;
+  }
+
+  const map =
+    getHeaderMap_(
+      sheet
+    );
+
+  const checkedInColumn =
+    map.checkedIn;
+
+  const notesColumn =
+    map.notes;
+
+  /*
+   * Notes are intentionally editable without additional business logic.
+   */
+  if (
+    notesColumn &&
+    e.range.getColumn() ===
+      notesColumn
+  ) {
+    return;
+  }
+
+  if (
+    !checkedInColumn ||
+    e.range.getColumn() !==
+      checkedInColumn ||
+    e.range.getRow() <
+      2
+  ) {
+    return;
+  }
+
+  const rows =
+    readRecords_(
+      sheet
+    );
+
+  const entry =
+    rows.find(
+      function (
+        item
+      ) {
+        return (
+          item.row ===
+          e.range.getRow()
+        );
+      }
+    );
+
+  if (!entry) {
+    return;
+  }
+
+  const record =
+    entry.record;
+
+  const previousStatus =
+    normalizedRegistrationStatus_(
+      record
+    );
+
+  if (
+    previousStatus ===
+    'cancelled'
+  ) {
+    e.range.setValue(
+      false
+    );
+
+    return;
+  }
+
+  const checked =
+    e.value ===
+    'TRUE';
+
+  if (checked) {
+    const now =
+      new Date();
+
+    setCells_(
+      sheet,
+      entry.row,
+      {
+        checkedIn:
+          true,
+
+        checkedInAt:
+          now,
+
+        registrationStatus:
+          'checked_in',
+
+        state:
+          'checked_in',
+      }
+    );
+
+    record.checkedIn =
+      true;
+
+    record.checkedInAt =
+      now;
+
+    record.registrationStatus =
+      'checked_in';
+
+    record.state =
+      'checked_in';
+
+    logAudit_(
+      'PARTICIPANT_CHECKED_IN',
+      record,
+      previousStatus,
+      'checked_in',
+      'Check-in checkbox enabled.',
+      getAdminActor_()
+    );
+  } else {
+    const nextStatus =
+      'confirmed';
+
+    setCells_(
+      sheet,
+      entry.row,
+      {
+        checkedIn:
+          false,
+
+        checkedInAt:
+          '',
+
+        registrationStatus:
+          nextStatus,
+
+        state:
+          legacyStateFor_(
+            nextStatus,
+            normalizedCvStatus_(
+              record
+            )
+          ),
+      }
+    );
+
+    record.checkedIn =
+      false;
+
+    record.checkedInAt =
+      '';
+
+    record.registrationStatus =
+      nextStatus;
+
+    logAudit_(
+      'PARTICIPANT_CHECKIN_REVERSED',
+      record,
+      previousStatus,
+      nextStatus,
+      'Check-in checkbox disabled.',
+      getAdminActor_()
+    );
+  }
+
+  if (
+    typeof refreshControlCenter_ ===
+    'function'
+  ) {
+    refreshControlCenter_();
   }
 }
 
@@ -410,55 +659,61 @@ function loadAdminParticipant_() {
   const record =
     found.record;
 
-  const state =
-    String(
-      record.state ||
-      ''
+  const registrationStatus =
+    normalizedRegistrationStatus_(
+      record
+    );
+
+  const cvStatus =
+    normalizedCvStatus_(
+      record
     );
 
   sheet
     .getRange(
-      'B5:B12'
+      'B5:B14'
     )
     .setValues([
+      [
+        record.registrationId ||
+        '',
+      ],
       [
         record.name ||
         '',
       ],
-
       [
         record.email ||
         '',
       ],
-
       [
+        record.course ||
         record.curse ||
         '',
       ],
-
       [
         record.year ||
         '',
       ],
-
       [
-        state,
+        registrationStatus,
       ],
-
+      [
+        cvStatus,
+      ],
       [
         record.cvFileId
           ? 'CV available'
           : 'No CV',
       ],
-
       [
         record.cvUpdatedAt ||
         '',
       ],
-
       [
-        record.token ||
-        '',
+        Boolean(
+          record.checkedIn
+        ),
       ],
     ]);
 
@@ -467,7 +722,7 @@ function loadAdminParticipant_() {
   ) {
     sheet
       .getRange(
-        'B11'
+        'B13'
       )
       .setNumberFormat(
         'dd/mm/yyyy hh:mm'
@@ -477,21 +732,23 @@ function loadAdminParticipant_() {
   if (
     record.cvFileId
   ) {
+    const fileId =
+      String(
+        record.cvFileId
+      ).replace(
+        /"/g,
+        ''
+      );
+
     const formula =
       '=HYPERLINK("' +
       'https://drive.google.com/file/d/' +
-      String(
-        record.cvFileId
-      )
-        .replace(
-          /"/g,
-          ''
-        ) +
+      fileId +
       '/view","Open CV in Google Drive")';
 
     sheet
       .getRange(
-        'B10'
+        'B12'
       )
       .setFormula(
         formula
@@ -523,7 +780,7 @@ function clearAdminParticipant_(
 ) {
   sheet
     .getRange(
-      'B5:B12'
+      'B5:B14'
     )
     .clearContent();
 
@@ -561,9 +818,7 @@ function executeAdminAction_() {
       ''
     ).trim();
 
-  if (
-    !email
-  ) {
+  if (!email) {
     setAdminResult_(
       'Enter a participant email first.',
       true
@@ -587,38 +842,64 @@ function executeAdminAction_() {
 
   let result;
 
-  if (
-    action ===
-    'RESEND_MAGIC_LINK'
-  ) {
-    result =
-      adminResendMagicLink_(
-        email
-      );
-  } else if (
-    action ===
-    'CANCEL_REGISTRATION'
-  ) {
-    result =
-      adminCancelRegistration_(
-        email
-      );
-  } else if (
-    action ===
-    'RESTORE_REGISTRATION'
-  ) {
-    result =
-      adminRestoreRegistration_(
-        email
-      );
-  } else if (
-    action ===
-    'PROMOTE_WAITLIST'
-  ) {
-    result =
-      adminPromoteWaitlist_(
-        email
-      );
+  switch (action) {
+    case 'RESEND_MAGIC_LINK':
+      result =
+        adminResendMagicLink_(
+          email
+        );
+      break;
+
+    case 'CANCEL_REGISTRATION':
+      result =
+        adminCancelRegistration_(
+          email
+        );
+      break;
+
+    case 'RESTORE_REGISTRATION':
+      result =
+        adminRestoreRegistration_(
+          email
+        );
+      break;
+
+    case 'PROMOTE_WAITLIST':
+      result =
+        adminPromoteWaitlist_(
+          email
+        );
+      break;
+
+    case 'CHECK_IN':
+      result =
+        adminCheckIn_(
+          email
+        );
+      break;
+
+    case 'UNDO_CHECK_IN':
+      result =
+        adminUndoCheckIn_(
+          email
+        );
+      break;
+
+    case 'DELETE_PARTICIPANT_DATA':
+      result =
+        adminDeleteParticipantData_(
+          email
+        );
+      break;
+
+    default:
+      result = {
+        ok:
+          false,
+
+        message:
+          'Unsupported action.',
+      };
   }
 
   setAdminResult_(
@@ -626,7 +907,28 @@ function executeAdminAction_() {
     !result.ok
   );
 
-  loadAdminParticipant_();
+  if (
+    action !==
+    'DELETE_PARTICIPANT_DATA' ||
+    !result.ok
+  ) {
+    loadAdminParticipant_();
+  } else {
+    clearAdminParticipant_(
+      adminSheet
+    );
+
+    adminSheet
+      .getRange(
+        ADMIN_EMAIL_CELL
+      )
+      .clearContent();
+
+    setAdminResult_(
+      result.message,
+      false
+    );
+  }
 
   if (
     typeof refreshControlCenter_ ===
@@ -637,7 +939,7 @@ function executeAdminAction_() {
 }
 
 // -----------------------------------------------------------------------------
-// Admin actions
+// Resend
 // -----------------------------------------------------------------------------
 
 function adminResendMagicLink_(
@@ -650,358 +952,648 @@ function adminResendMagicLink_(
     );
 
   if (!found) {
-    return {
-      ok: false,
-      message:
-        'Participant not found.',
-    };
+    return adminError_(
+      'Participant not found.'
+    );
   }
 
-  const state =
-    normalizedRecordState_(
+  const status =
+    normalizedRegistrationStatus_(
       found.record
     );
 
   if (
-    state ===
+    status ===
     'cancelled'
   ) {
-    return {
-      ok: false,
-      message:
-        'Cancelled registrations do not receive magic-link emails.',
-    };
+    return adminError_(
+      'Cancelled registrations do not receive magic-link emails.'
+    );
   }
 
   sendMagicLink_(
     found.record,
     {
-      returning: true,
+      returning:
+        true,
 
       registrationStatus:
-        registrationStatusFromRecord_(
-          found.record
-        ),
+        status,
     }
   );
 
   logAudit_(
-    'RESEND_MAGIC_LINK',
+    'MAGIC_LINK_RESENT',
     found.record,
-    state,
-    state,
+    status,
+    status,
     'Magic link resent by administrator.',
     getAdminActor_()
   );
 
-  return {
-    ok: true,
-    message:
-      'Magic link sent.',
-  };
+  return adminSuccess_(
+    'Magic link sent.'
+  );
 }
+
+// -----------------------------------------------------------------------------
+// Cancel
+// -----------------------------------------------------------------------------
 
 function adminCancelRegistration_(
   email
 ) {
-  const lock =
-    LockService.getScriptLock();
+  return withAdminLock_(
+    function () {
+      const sheet =
+        getSheet_();
 
-  lock.waitLock(
-    LOCK_TIMEOUT_MS
-  );
+      const found =
+        findRowByEmail_(
+          sheet,
+          email
+        );
 
-  try {
-    const sheet =
-      getSheet_();
-
-    const found =
-      findRowByEmail_(
-        sheet,
-        email
-      );
-
-    if (!found) {
-      return {
-        ok: false,
-        message:
-          'Participant not found.',
-      };
-    }
-
-    const previousState =
-      normalizedRecordState_(
-        found.record
-      );
-
-    if (
-      previousState ===
-      'cancelled'
-    ) {
-      return {
-        ok: false,
-        message:
-          'Registration is already cancelled.',
-      };
-    }
-
-    setCells_(
-      sheet,
-      found.row,
-      {
-        state:
-          'cancelled',
+      if (!found) {
+        return adminError_(
+          'Participant not found.'
+        );
       }
-    );
 
-    found.record.state =
-      'cancelled';
+      const previousStatus =
+        normalizedRegistrationStatus_(
+          found.record
+        );
 
-    logAudit_(
-      'CANCEL_REGISTRATION',
-      found.record,
-      previousState,
-      'cancelled',
-      'Registration cancelled by administrator.',
-      getAdminActor_()
-    );
+      if (
+        previousStatus ===
+        'cancelled'
+      ) {
+        return adminError_(
+          'Registration is already cancelled.'
+        );
+      }
 
-    return {
-      ok: true,
-      message:
-        'Registration cancelled.',
-    };
-  } finally {
-    lock.releaseLock();
-  }
+      const now =
+        new Date();
+
+      setCells_(
+        sheet,
+        found.row,
+        {
+          registrationStatus:
+            'cancelled',
+
+          cancelledAt:
+            now,
+
+          checkedIn:
+            false,
+
+          checkedInAt:
+            '',
+
+          state:
+            'cancelled',
+        }
+      );
+
+      found.record
+        .registrationStatus =
+        'cancelled';
+
+      found.record
+        .cancelledAt =
+        now;
+
+      found.record
+        .checkedIn =
+        false;
+
+      logAudit_(
+        'REGISTRATION_CANCELLED',
+        found.record,
+        previousStatus,
+        'cancelled',
+        'Registration cancelled by administrator.',
+        getAdminActor_()
+      );
+
+      return adminSuccess_(
+        'Registration cancelled.'
+      );
+    }
+  );
 }
+
+// -----------------------------------------------------------------------------
+// Restore
+// -----------------------------------------------------------------------------
 
 function adminRestoreRegistration_(
   email
 ) {
-  const lock =
-    LockService.getScriptLock();
+  return withAdminLock_(
+    function () {
+      const sheet =
+        getSheet_();
 
-  lock.waitLock(
-    LOCK_TIMEOUT_MS
-  );
+      const found =
+        findRowByEmail_(
+          sheet,
+          email
+        );
 
-  try {
-    const sheet =
-      getSheet_();
+      if (!found) {
+        return adminError_(
+          'Participant not found.'
+        );
+      }
 
-    const found =
-      findRowByEmail_(
+      const previousStatus =
+        normalizedRegistrationStatus_(
+          found.record
+        );
+
+      if (
+        previousStatus !==
+        'cancelled'
+      ) {
+        return adminError_(
+          'Only cancelled registrations can be restored.'
+        );
+      }
+
+      const availability =
+        getRegistrationState_();
+
+      const admission =
+        getRegistrationAdmission_(
+          availability
+        );
+
+      if (
+        !admission.allowed
+      ) {
+        return adminError_(
+          admission.message
+        );
+      }
+
+      const nextStatus =
+        admission
+          .registrationStatus;
+
+      const cvStatus =
+        normalizedCvStatus_(
+          found.record
+        );
+
+      setCells_(
         sheet,
-        email
+        found.row,
+        {
+          registrationStatus:
+            nextStatus,
+
+          cancelledAt:
+            '',
+
+          state:
+            legacyStateFor_(
+              nextStatus,
+              cvStatus
+            ),
+        }
       );
 
-    if (!found) {
-      return {
-        ok: false,
-        message:
-          'Participant not found.',
-      };
-    }
+      found.record
+        .registrationStatus =
+        nextStatus;
 
-    const previousState =
-      normalizedRecordState_(
-        found.record
+      found.record
+        .cancelledAt =
+        '';
+
+      found.record.state =
+        legacyStateFor_(
+          nextStatus,
+          cvStatus
+        );
+
+      sendMagicLink_(
+        found.record,
+        {
+          returning:
+            true,
+
+          registrationStatus:
+            nextStatus,
+        }
       );
 
-    if (
-      previousState !==
-      'cancelled'
-    ) {
-      return {
-        ok: false,
-        message:
-          'Only cancelled registrations can be restored.',
-      };
-    }
-
-    const availability =
-      getRegistrationState_();
-
-    const admission =
-      getRegistrationAdmission_(
-        availability
+      logAudit_(
+        'REGISTRATION_RESTORED',
+        found.record,
+        previousStatus,
+        nextStatus,
+        'Cancelled registration restored.',
+        getAdminActor_()
       );
 
-    if (
-      !admission.allowed
-    ) {
-      return {
-        ok: false,
-        message:
-          admission.message,
-      };
-    }
-
-    let nextState =
-      admission.storedState;
-
-    if (
-      nextState ===
-        'registered' &&
-      found.record.cvFileId
-    ) {
-      nextState =
-        'cv_delivered';
-    }
-
-    setCells_(
-      sheet,
-      found.row,
-      {
-        state:
-          nextState,
-      }
-    );
-
-    found.record.state =
-      nextState;
-
-    sendMagicLink_(
-      found.record,
-      {
-        returning: true,
-
-        registrationStatus:
-          registrationStatusFromRecord_(
-            found.record
-          ),
-      }
-    );
-
-    logAudit_(
-      'RESTORE_REGISTRATION',
-      found.record,
-      previousState,
-      nextState,
-      'Cancelled registration restored.',
-      getAdminActor_()
-    );
-
-    return {
-      ok: true,
-
-      message:
-        nextState ===
-        'waitlisted'
+      return adminSuccess_(
+        nextStatus ===
+          'waitlisted'
           ? 'Registration restored to the waiting list.'
-          : 'Registration restored and confirmed.',
-    };
-  } finally {
-    lock.releaseLock();
-  }
+          : 'Registration restored and confirmed.'
+      );
+    }
+  );
 }
+
+// -----------------------------------------------------------------------------
+// Waitlist promotion
+// -----------------------------------------------------------------------------
 
 function adminPromoteWaitlist_(
   email
 ) {
-  const lock =
-    LockService.getScriptLock();
+  return withAdminLock_(
+    function () {
+      const sheet =
+        getSheet_();
 
-  lock.waitLock(
-    LOCK_TIMEOUT_MS
-  );
+      const found =
+        findRowByEmail_(
+          sheet,
+          email
+        );
 
-  try {
-    const sheet =
-      getSheet_();
+      if (!found) {
+        return adminError_(
+          'Participant not found.'
+        );
+      }
 
-    const found =
-      findRowByEmail_(
+      const previousStatus =
+        normalizedRegistrationStatus_(
+          found.record
+        );
+
+      if (
+        previousStatus !==
+        'waitlisted'
+      ) {
+        return adminError_(
+          'Participant is not on the waiting list.'
+        );
+      }
+
+      const config =
+        getEventConfig_();
+
+      const counts =
+        getRegistrationCounts_();
+
+      if (
+        config.maxRegistrations >
+          0 &&
+        counts.registered >=
+          config.maxRegistrations
+      ) {
+        return adminError_(
+          'There is currently no confirmed place available.'
+        );
+      }
+
+      const cvStatus =
+        normalizedCvStatus_(
+          found.record
+        );
+
+      setCells_(
         sheet,
-        email
+        found.row,
+        {
+          registrationStatus:
+            'confirmed',
+
+          state:
+            legacyStateFor_(
+              'confirmed',
+              cvStatus
+            ),
+        }
       );
 
-    if (!found) {
-      return {
-        ok: false,
-        message:
-          'Participant not found.',
-      };
-    }
+      found.record
+        .registrationStatus =
+        'confirmed';
 
-    const previousState =
-      normalizedRecordState_(
+      found.record.state =
+        legacyStateFor_(
+          'confirmed',
+          cvStatus
+        );
+
+      sendPromotionEmail_(
         found.record
       );
 
-    if (
-      previousState !==
-      'waitlisted'
-    ) {
-      return {
-        ok: false,
-        message:
-          'Participant is not on the waiting list.',
-      };
+      logAudit_(
+        'REGISTRATION_PROMOTED',
+        found.record,
+        previousStatus,
+        'confirmed',
+        'Participant promoted from waiting list.',
+        getAdminActor_()
+      );
+
+      return adminSuccess_(
+        'Participant promoted and confirmation email sent.'
+      );
     }
-
-    const config =
-      getEventConfig_();
-
-    const counts =
-      getRegistrationCounts_();
-
-    if (
-      config.maxRegistrations >
-        0 &&
-      counts.registered >=
-        config.maxRegistrations
-    ) {
-      return {
-        ok: false,
-        message:
-          'There is currently no confirmed place available.',
-      };
-    }
-
-    const nextState =
-      found.record.cvFileId
-        ? 'cv_delivered'
-        : 'registered';
-
-    setCells_(
-      sheet,
-      found.row,
-      {
-        state:
-          nextState,
-      }
-    );
-
-    found.record.state =
-      nextState;
-
-    sendPromotionEmail_(
-      found.record
-    );
-
-    logAudit_(
-      'PROMOTE_WAITLIST',
-      found.record,
-      previousState,
-      nextState,
-      'Participant promoted from waiting list.',
-      getAdminActor_()
-    );
-
-    return {
-      ok: true,
-      message:
-        'Participant promoted and confirmation email sent.',
-    };
-  } finally {
-    lock.releaseLock();
-  }
+  );
 }
 
 // -----------------------------------------------------------------------------
-// Health check
+// Check-in
+// -----------------------------------------------------------------------------
+
+function adminCheckIn_(
+  email
+) {
+  return withAdminLock_(
+    function () {
+      const sheet =
+        getSheet_();
+
+      const found =
+        findRowByEmail_(
+          sheet,
+          email
+        );
+
+      if (!found) {
+        return adminError_(
+          'Participant not found.'
+        );
+      }
+
+      const previousStatus =
+        normalizedRegistrationStatus_(
+          found.record
+        );
+
+      if (
+        previousStatus ===
+        'cancelled'
+      ) {
+        return adminError_(
+          'Cancelled registrations cannot check in.'
+        );
+      }
+
+      if (
+        previousStatus ===
+        'waitlisted'
+      ) {
+        return adminError_(
+          'Waiting-list participants must be promoted before check-in.'
+        );
+      }
+
+      if (
+        previousStatus ===
+        'checked_in'
+      ) {
+        return adminError_(
+          'Participant is already checked in.'
+        );
+      }
+
+      const now =
+        new Date();
+
+      setCells_(
+        sheet,
+        found.row,
+        {
+          registrationStatus:
+            'checked_in',
+
+          checkedIn:
+            true,
+
+          checkedInAt:
+            now,
+
+          state:
+            'checked_in',
+        }
+      );
+
+      found.record
+        .registrationStatus =
+        'checked_in';
+
+      found.record
+        .checkedIn =
+        true;
+
+      found.record
+        .checkedInAt =
+        now;
+
+      logAudit_(
+        'PARTICIPANT_CHECKED_IN',
+        found.record,
+        previousStatus,
+        'checked_in',
+        'Participant checked in by administrator.',
+        getAdminActor_()
+      );
+
+      return adminSuccess_(
+        'Participant checked in.'
+      );
+    }
+  );
+}
+
+function adminUndoCheckIn_(
+  email
+) {
+  return withAdminLock_(
+    function () {
+      const sheet =
+        getSheet_();
+
+      const found =
+        findRowByEmail_(
+          sheet,
+          email
+        );
+
+      if (!found) {
+        return adminError_(
+          'Participant not found.'
+        );
+      }
+
+      const previousStatus =
+        normalizedRegistrationStatus_(
+          found.record
+        );
+
+      if (
+        previousStatus !==
+        'checked_in'
+      ) {
+        return adminError_(
+          'Participant is not checked in.'
+        );
+      }
+
+      const cvStatus =
+        normalizedCvStatus_(
+          found.record
+        );
+
+      setCells_(
+        sheet,
+        found.row,
+        {
+          registrationStatus:
+            'confirmed',
+
+          checkedIn:
+            false,
+
+          checkedInAt:
+            '',
+
+          state:
+            legacyStateFor_(
+              'confirmed',
+              cvStatus
+            ),
+        }
+      );
+
+      found.record
+        .registrationStatus =
+        'confirmed';
+
+      found.record
+        .checkedIn =
+        false;
+
+      found.record
+        .checkedInAt =
+        '';
+
+      logAudit_(
+        'PARTICIPANT_CHECKIN_REVERSED',
+        found.record,
+        'checked_in',
+        'confirmed',
+        'Participant check-in reversed by administrator.',
+        getAdminActor_()
+      );
+
+      return adminSuccess_(
+        'Check-in reversed.'
+      );
+    }
+  );
+}
+
+// -----------------------------------------------------------------------------
+// GDPR delete
+// -----------------------------------------------------------------------------
+
+function adminDeleteParticipantData_(
+  email
+) {
+  return withAdminLock_(
+    function () {
+      const sheet =
+        getSheet_();
+
+      const found =
+        findRowByEmail_(
+          sheet,
+          email
+        );
+
+      if (!found) {
+        return adminError_(
+          'Participant not found.'
+        );
+      }
+
+      const record =
+        found.record;
+
+      const auditRecord = {
+        registrationId:
+          record.registrationId ||
+          '',
+
+        email:
+          record.email ||
+          '',
+      };
+
+      if (
+        record.cvFileId
+      ) {
+        try {
+          DriveApp
+            .getFileById(
+              record.cvFileId
+            )
+            .setTrashed(
+              true
+            );
+        } catch (err) {
+          console.warn(
+            'Could not trash participant CV during GDPR deletion: ' +
+            err
+          );
+        }
+      }
+
+      /*
+       * Log before deleting the source row.
+       *
+       * Audit only keeps registrationId / masked target.
+       */
+      logAudit_(
+        'PARTICIPANT_DELETED',
+        auditRecord,
+        normalizedRegistrationStatus_(
+          record
+        ),
+        'deleted',
+        'Participant personal data permanently removed.',
+        getAdminActor_()
+      );
+
+      sheet.deleteRow(
+        found.row
+      );
+
+      return adminSuccess_(
+        'Participant data deleted.'
+      );
+    }
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Health
 // -----------------------------------------------------------------------------
 
 function runHealthCheck() {
@@ -1010,62 +1602,57 @@ function runHealthCheck() {
 
   const results = [];
 
-  checkProperty_(
-    results,
-    'SHEET_ID'
-  );
-
-  checkProperty_(
-    results,
-    'CV_FOLDER_ID'
-  );
-
-  checkProperty_(
-    results,
-    'SITE_URL'
-  );
-
-  checkProperty_(
-    results,
-    'EVENT_EMAIL'
+  [
+    'SHEET_ID',
+    'CV_FOLDER_ID',
+    'SITE_URL',
+    'EVENT_EMAIL',
+  ].forEach(
+    function (
+      key
+    ) {
+      checkProperty_(
+        results,
+        key
+      );
+    }
   );
 
   try {
     const sheet =
       getSheet_();
 
-    const currentHeaders =
-      sheet
-        .getRange(
-          1,
-          1,
-          1,
-          HEADERS.length
-        )
-        .getValues()[0];
+    const map =
+      getHeaderMap_(
+        sheet
+      );
 
-    const valid =
-      HEADERS.every(
+    const missing =
+      HEADERS.filter(
         function (
-          header,
-          index
+          header
         ) {
-          return (
-            String(
-              currentHeaders[
-                index
-              ]
-            ) ===
+          return !map[
             header
-          );
+          ];
         }
       );
 
     results.push([
-      valid
+      missing.length ===
+        0
         ? '✓'
         : '✗',
-      'Registration headers',
+
+      missing.length ===
+        0
+        ? 'Registration schema'
+        : (
+            'Missing: ' +
+            missing.join(
+              ', '
+            )
+          ),
     ]);
   } catch (err) {
     results.push([
@@ -1122,9 +1709,34 @@ function runHealthCheck() {
     ]);
   }
 
+  try {
+    const version =
+      typeof getSchemaVersion_ ===
+        'function'
+        ? getSchemaVersion_()
+        : 0;
+
+    results.push([
+      version ===
+        CURRENT_SCHEMA_VERSION
+        ? '✓'
+        : '⚠',
+
+      'Schema v' +
+      version +
+      '/' +
+      CURRENT_SCHEMA_VERSION,
+    ]);
+  } catch (err) {
+    results.push([
+      '✗',
+      'Schema version',
+    ]);
+  }
+
   admin
     .getRange(
-      'D4:E20'
+      'D4:E22'
     )
     .clearContent();
 
@@ -1157,6 +1769,7 @@ function checkProperty_(
     value
       ? '✓'
       : '✗',
+
     key,
   ]);
 }
@@ -1165,17 +1778,46 @@ function checkProperty_(
 // Helpers
 // -----------------------------------------------------------------------------
 
-function normalizedRecordState_(
-  record
+function withAdminLock_(
+  callback
 ) {
-  return String(
-    record &&
-    record.state
-      ? record.state
-      : ''
-  )
-    .trim()
-    .toLowerCase();
+  const lock =
+    LockService
+      .getScriptLock();
+
+  lock.waitLock(
+    LOCK_TIMEOUT_MS
+  );
+
+  try {
+    return callback();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function adminSuccess_(
+  message
+) {
+  return {
+    ok:
+      true,
+
+    message:
+      message,
+  };
+}
+
+function adminError_(
+  message
+) {
+  return {
+    ok:
+      false,
+
+    message:
+      message,
+  };
 }
 
 function setAdminResult_(

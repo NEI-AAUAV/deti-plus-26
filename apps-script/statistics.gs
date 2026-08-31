@@ -8,14 +8,10 @@ const DASHBOARD_SHEET_NAME =
 const STATISTICS_SHEET_NAME =
   'Statistics';
 
-/**
- * Rebuilds the operational Dashboard and Statistics sheets.
- *
- * Both sheets are derived views.
- *
- * Registration remains the source of truth and is never cleared,
- * reordered or migrated by this function.
- */
+// -----------------------------------------------------------------------------
+// Refresh
+// -----------------------------------------------------------------------------
+
 function refreshControlCenter_() {
   const ss =
     getSpreadsheet_();
@@ -38,7 +34,7 @@ function refreshControlCenter_() {
     buildRegistrationStatistics_(
       rows,
       config.timezone ||
-        DEFAULT_EVENT_TIMEZONE
+      DEFAULT_EVENT_TIMEZONE
     );
 
   formatRegistrationSheet_(
@@ -83,6 +79,9 @@ function refreshControlCenter_() {
     registered:
       statistics.confirmed,
 
+    checkedIn:
+      statistics.checkedIn,
+
     waitlisted:
       statistics.waitlisted,
 
@@ -102,6 +101,16 @@ function buildRegistrationStatistics_(
   rows,
   timezone
 ) {
+  const now =
+    new Date();
+
+  const todayKey =
+    Utilities.formatDate(
+      now,
+      timezone,
+      'yyyy-MM-dd'
+    );
+
   const stats = {
     totalRows:
       0,
@@ -110,6 +119,9 @@ function buildRegistrationStatistics_(
       0,
 
     confirmed:
+      0,
+
+    checkedIn:
       0,
 
     waitlisted:
@@ -124,6 +136,30 @@ function buildRegistrationStatistics_(
     withoutCv:
       0,
 
+    cvSubmitted:
+      0,
+
+    cvUpdated:
+      0,
+
+    registrationsToday:
+      0,
+
+    registrationsLast24h:
+      0,
+
+    registrationsLast7Days:
+      0,
+
+    averagePerDay:
+      0,
+
+    peakDay:
+      '',
+
+    peakDayCount:
+      0,
+
     byYear:
       {},
 
@@ -132,19 +168,32 @@ function buildRegistrationStatistics_(
 
     byDay:
       {},
+
+    dailyRows:
+      [],
+
+    firstRegistrationAt:
+      null,
+
+    lastRegistrationAt:
+      null,
   };
 
   rows.forEach(
-    function (entry) {
+    function (
+      entry
+    ) {
       const record =
         entry.record;
 
       if (
         !String(
-          record.email || ''
+          record.email ||
+          ''
         ).trim() &&
         !String(
-          record.token || ''
+          record.token ||
+          ''
         ).trim()
       ) {
         return;
@@ -152,25 +201,18 @@ function buildRegistrationStatistics_(
 
       stats.totalRows++;
 
-      const state =
-        String(
-          record.state || ''
-        )
-          .trim()
-          .toLowerCase();
+      const status =
+        normalizedRegistrationStatus_(
+          record
+        );
 
-      /*
-       * Cancelled registrations remain visible in totalRows and in the
-       * dedicated cancelled counter, but they are not active event
-       * participants and therefore must not affect:
-       *
-       * - CV coverage
-       * - course statistics
-       * - academic-year statistics
-       * - registrations-by-day statistics
-       */
+      const cvStatus =
+        normalizedCvStatus_(
+          record
+        );
+
       if (
-        state ===
+        status ===
         'cancelled'
       ) {
         stats.cancelled++;
@@ -180,27 +222,38 @@ function buildRegistrationStatistics_(
       stats.activeRows++;
 
       if (
-        state ===
+        status ===
         'waitlisted'
       ) {
         stats.waitlisted++;
       } else {
-        /*
-         * Backwards compatibility:
-         *
-         * registered
-         * cv_delivered
-         * blank legacy state
-         *
-         * are all confirmed.
-         */
         stats.confirmed++;
+
+        if (
+          status ===
+          'checked_in'
+        ) {
+          stats.checkedIn++;
+        }
       }
 
       if (
+        cvStatus ===
+          'submitted' ||
+        cvStatus ===
+          'updated' ||
         record.cvFileId
       ) {
         stats.withCv++;
+
+        if (
+          cvStatus ===
+          'updated'
+        ) {
+          stats.cvUpdated++;
+        } else {
+          stats.cvSubmitted++;
+        }
       } else {
         stats.withoutCv++;
       }
@@ -219,6 +272,7 @@ function buildRegistrationStatistics_(
 
       const course =
         String(
+          record.course ||
           record.curse ||
           'Unknown'
         ).trim() ||
@@ -229,50 +283,217 @@ function buildRegistrationStatistics_(
         course
       );
 
+      const registeredAt =
+        registrationDate_(
+          record
+        );
+
       if (
-        record.timestamp
+        !registeredAt
       ) {
-        const date =
-          record.timestamp
-            instanceof Date
-            ? record.timestamp
-            : new Date(
-                record.timestamp
-              );
+        return;
+      }
 
-        if (
-          !Number.isNaN(
-            date.getTime()
-          )
-        ) {
-          const day =
-            Utilities.formatDate(
-              date,
-              timezone ||
-                DEFAULT_EVENT_TIMEZONE,
-              'yyyy-MM-dd'
-            );
+      if (
+        !stats.firstRegistrationAt ||
+        registeredAt.getTime() <
+          stats
+            .firstRegistrationAt
+            .getTime()
+      ) {
+        stats.firstRegistrationAt =
+          registeredAt;
+      }
 
-          incrementStat_(
-            stats.byDay,
-            day
-          );
-        }
+      if (
+        !stats.lastRegistrationAt ||
+        registeredAt.getTime() >
+          stats
+            .lastRegistrationAt
+            .getTime()
+      ) {
+        stats.lastRegistrationAt =
+          registeredAt;
+      }
+
+      const day =
+        Utilities.formatDate(
+          registeredAt,
+          timezone,
+          'yyyy-MM-dd'
+        );
+
+      incrementStat_(
+        stats.byDay,
+        day
+      );
+
+      if (
+        day ===
+        todayKey
+      ) {
+        stats
+          .registrationsToday++;
+      }
+
+      const ageMs =
+        now.getTime() -
+        registeredAt.getTime();
+
+      if (
+        ageMs >=
+          0 &&
+        ageMs <=
+          24 *
+          60 *
+          60 *
+          1000
+      ) {
+        stats
+          .registrationsLast24h++;
+      }
+
+      if (
+        ageMs >=
+          0 &&
+        ageMs <=
+          7 *
+          24 *
+          60 *
+          60 *
+          1000
+      ) {
+        stats
+          .registrationsLast7Days++;
       }
     }
   );
 
+  stats.dailyRows =
+    buildDailyRows_(
+      stats.byDay
+    );
+
+  stats.dailyRows.forEach(
+    function (
+      row
+    ) {
+      if (
+        row[1] >
+        stats.peakDayCount
+      ) {
+        stats.peakDay =
+          row[0];
+
+        stats.peakDayCount =
+          row[1];
+      }
+    }
+  );
+
+  if (
+    stats.firstRegistrationAt
+  ) {
+    const days =
+      Math.max(
+        (
+          now.getTime() -
+          stats
+            .firstRegistrationAt
+            .getTime()
+        ) /
+        (
+          24 *
+          60 *
+          60 *
+          1000
+        ),
+        1
+      );
+
+    stats.averagePerDay =
+      Math.round(
+        (
+          stats.activeRows /
+          days
+        ) *
+        10
+      ) / 10;
+  }
+
   return stats;
+}
+
+function registrationDate_(
+  record
+) {
+  const value =
+    record.registeredAt ||
+    record.timestamp;
+
+  if (!value) {
+    return null;
+  }
+
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(
+          value
+        );
+
+  return Number.isNaN(
+    date.getTime()
+  )
+    ? null
+    : date;
 }
 
 function incrementStat_(
   map,
   key
 ) {
-  map[key] =
+  map[
+    key
+  ] =
     Number(
-      map[key] || 0
+      map[
+        key
+      ] ||
+      0
     ) + 1;
+}
+
+function buildDailyRows_(
+  map
+) {
+  const days =
+    Object.keys(
+      map
+    ).sort();
+
+  let cumulative =
+    0;
+
+  return days.map(
+    function (
+      day
+    ) {
+      const daily =
+        map[
+          day
+        ];
+
+      cumulative +=
+        daily;
+
+      return [
+        day,
+        daily,
+        cumulative,
+      ];
+    }
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -293,12 +514,6 @@ function renderStatisticsSheet_(
       true
     );
 
-  const dayRows =
-    statMapRows_(
-      stats.byDay,
-      false
-    );
-
   const yearRows =
     statMapRows_(
       stats.byYear,
@@ -307,16 +522,19 @@ function renderStatisticsSheet_(
 
   const requiredRows =
     Math.max(
-      10,
-      courseRows.length + 2,
-      dayRows.length + 2,
-      yearRows.length + 2
+      20,
+      courseRows.length +
+        2,
+      yearRows.length +
+        2,
+      stats.dailyRows.length +
+        2
     );
 
   ensureSheetSize_(
     sheet,
     requiredRows,
-    15
+    20
   );
 
   sheet.setHiddenGridlines(
@@ -337,6 +555,10 @@ function renderStatisticsSheet_(
         stats.confirmed,
       ],
       [
+        'Checked in',
+        stats.checkedIn,
+      ],
+      [
         'Waitlisted',
         stats.waitlisted,
       ],
@@ -349,60 +571,95 @@ function renderStatisticsSheet_(
 
   writeStatisticsSection_(
     sheet,
-    5,
-    'Academic year',
-    yearRows
-  );
-
-  writeStatisticsSection_(
-    sheet,
-    8,
+    4,
     'CV status',
     [
       [
-        'CV submitted',
+        'With CV',
         stats.withCv,
       ],
       [
-        'No CV',
+        'Without CV',
         stats.withoutCv,
+      ],
+      [
+        'Submitted',
+        stats.cvSubmitted,
+      ],
+      [
+        'Updated',
+        stats.cvUpdated,
       ],
     ]
   );
 
   writeStatisticsSection_(
     sheet,
-    11,
-    'Course',
-    courseRows
+    7,
+    'Time',
+    [
+      [
+        'Today',
+        stats.registrationsToday,
+      ],
+      [
+        'Last 24h',
+        stats.registrationsLast24h,
+      ],
+      [
+        'Last 7 days',
+        stats.registrationsLast7Days,
+      ],
+      [
+        'Average/day',
+        stats.averagePerDay,
+      ],
+      [
+        'Peak day',
+        stats.peakDay ||
+        '—',
+      ],
+      [
+        'Peak day registrations',
+        stats.peakDayCount,
+      ],
+    ]
   );
 
   writeStatisticsSection_(
     sheet,
-    14,
-    'Registrations by day',
-    dayRows
+    10,
+    'Academic year',
+    yearRows
   );
 
-  [
-    1,
-    5,
-    8,
-    11,
-    14,
-  ].forEach(
-    function (column) {
-      sheet.setColumnWidth(
-        column,
-        220
-      );
-
-      sheet.setColumnWidth(
-        column + 1,
-        110
-      );
-    }
+  writeStatisticsSection_(
+    sheet,
+    13,
+    'Course',
+    courseRows
   );
+
+  writeDailyStatistics_(
+    sheet,
+    16,
+    stats.dailyRows
+  );
+
+  for (
+    let column = 1;
+    column <=
+    20;
+    column++
+  ) {
+    sheet.setColumnWidth(
+      column,
+      column % 3 ===
+        2
+        ? 110
+        : 180
+    );
+  }
 }
 
 function writeStatisticsSection_(
@@ -421,7 +678,7 @@ function writeStatisticsSection_(
     .setValues([
       [
         title,
-        'Count',
+        'Value',
       ],
     ])
     .setBackground(
@@ -432,9 +689,6 @@ function writeStatisticsSection_(
     )
     .setFontWeight(
       'bold'
-    )
-    .setVerticalAlignment(
-      'middle'
     );
 
   if (
@@ -452,23 +706,53 @@ function writeStatisticsSection_(
     )
     .setValues(
       rows
-    )
-    .setVerticalAlignment(
-      'middle'
     );
+}
+
+function writeDailyStatistics_(
+  sheet,
+  startColumn,
+  rows
+) {
+  sheet
+    .getRange(
+      1,
+      startColumn,
+      1,
+      3
+    )
+    .setValues([
+      [
+        'Date',
+        'Daily',
+        'Cumulative',
+      ],
+    ])
+    .setBackground(
+      '#111827'
+    )
+    .setFontColor(
+      '#ffffff'
+    )
+    .setFontWeight(
+      'bold'
+    );
+
+  if (
+    !rows.length
+  ) {
+    return;
+  }
 
   sheet
     .getRange(
       2,
-      startColumn + 1,
+      startColumn,
       rows.length,
-      1
+      3
     )
-    .setNumberFormat(
-      '0'
-    )
-    .setHorizontalAlignment(
-      'right'
+    .setValues(
+      rows
     );
 }
 
@@ -480,10 +764,14 @@ function statMapRows_(
     Object.keys(
       map
     ).map(
-      function (key) {
+      function (
+        key
+      ) {
         return [
           key,
-          map[key],
+          map[
+            key
+          ],
         ];
       }
     );
@@ -539,8 +827,8 @@ function renderDashboardSheet_(
 
   ensureSheetSize_(
     sheet,
-    55,
-    8
+    60,
+    10
   );
 
   sheet.setHiddenGridlines(
@@ -549,18 +837,19 @@ function renderDashboardSheet_(
 
   for (
     let column = 1;
-    column <= 8;
+    column <=
+    10;
     column++
   ) {
     sheet.setColumnWidth(
       column,
-      125
+      110
     );
   }
 
   sheet
     .getRange(
-      'A1:H2'
+      'A1:J2'
     )
     .merge()
     .setValue(
@@ -585,15 +874,15 @@ function renderDashboardSheet_(
 
   sheet
     .getRange(
-      'A3:H3'
+      'A3:J3'
     )
     .merge()
     .setValue(
-      'Live operational overview · Last refreshed ' +
+      'Operational overview · Last refreshed ' +
       Utilities.formatDate(
         new Date(),
         config.timezone ||
-          DEFAULT_EVENT_TIMEZONE,
+        DEFAULT_EVENT_TIMEZONE,
         'dd/MM/yyyy HH:mm'
       )
     )
@@ -614,29 +903,37 @@ function renderDashboardSheet_(
   renderDashboardCard_(
     sheet,
     'C5:D7',
+    'CHECKED IN',
+    stats.checkedIn
+  );
+
+  renderDashboardCard_(
+    sheet,
+    'E5:F7',
     'WAITLIST',
     stats.waitlisted
   );
 
   renderDashboardCard_(
     sheet,
-    'E5:F7',
-    'CVs RECEIVED',
+    'G5:H7',
+    'CVs',
     stats.withCv
   );
 
   renderDashboardCard_(
     sheet,
-    'G5:H7',
-    'TOTAL RECORDS',
-    stats.totalRows
+    'I5:J7',
+    'TODAY',
+    stats.registrationsToday
   );
 
   renderDashboardCard_(
     sheet,
     'A9:B11',
     'CAPACITY',
-    availability.capacity > 0
+    availability.capacity >
+      0
       ? availability.capacity
       : 'Unlimited'
   );
@@ -654,26 +951,25 @@ function renderDashboardSheet_(
   renderDashboardCard_(
     sheet,
     'E9:F11',
-    'STATE',
-    String(
-      availability.state ||
-      ''
-    ).toUpperCase()
+    'OCCUPANCY',
+    availability.percentage ===
+      null
+      ? '—'
+      : (
+          availability.percentage +
+          '%'
+        )
   );
 
-  /*
-   * CV coverage is based on active participants only.
-   *
-   * Cancelled registrations remain in totalRows for audit/history purposes,
-   * but should not reduce the operational CV completion percentage.
-   */
   const cvRate =
-    stats.activeRows > 0
+    stats.activeRows >
+      0
       ? Math.round(
           (
             stats.withCv /
             stats.activeRows
-          ) * 1000
+          ) *
+          1000
         ) / 10
       : 0;
 
@@ -681,12 +977,20 @@ function renderDashboardSheet_(
     sheet,
     'G9:H11',
     'CV RATE',
-    cvRate + '%'
+    cvRate +
+    '%'
+  );
+
+  renderDashboardCard_(
+    sheet,
+    'I9:J11',
+    'LAST 24H',
+    stats.registrationsLast24h
   );
 
   sheet
     .getRange(
-      'A13:H13'
+      'A13:J13'
     )
     .merge()
     .setValue(
@@ -697,9 +1001,6 @@ function renderDashboardSheet_(
     )
     .setFontWeight(
       'bold'
-    )
-    .setFontColor(
-      '#111827'
     );
 
   const eventInfo = [
@@ -709,20 +1010,20 @@ function renderDashboardSheet_(
         ? 'Yes'
         : 'No',
 
-      'Waitlist enabled',
-      config.waitlistEnabled
-        ? 'Yes'
-        : 'No',
+      'Current state',
+      String(
+        availability.state
+      ).toUpperCase(),
     ],
 
     [
-      'Opens',
+      'Registration opens',
       formatDashboardDate_(
         config.registrationOpensAt,
         config.timezone
       ),
 
-      'Closes',
+      'Registration closes',
       formatDashboardDate_(
         config.registrationClosesAt,
         config.timezone
@@ -730,30 +1031,48 @@ function renderDashboardSheet_(
     ],
 
     [
-      'Max registrations',
+      'Maximum registrations',
       config.maxRegistrations ===
         0
         ? 'Unlimited'
         : config.maxRegistrations,
 
-      'Max waitlist',
+      'Waitlist',
+      config.waitlistEnabled
+        ? 'Enabled'
+        : 'Disabled',
+    ],
+
+    [
+      'Maximum waitlist',
       config.maxWaitlist ===
         0
         ? 'Unlimited'
         : config.maxWaitlist,
-    ],
-
-    [
-      'CV uploads enabled',
-      config.cvUploadsEnabled
-        ? 'Yes'
-        : 'No',
 
       'CV deadline',
       formatDashboardDate_(
         config.cvDeadline,
         config.timezone
       ),
+    ],
+
+    [
+      'Data retention until',
+      formatDashboardDate_(
+        config.dataRetentionUntil,
+        config.timezone
+      ),
+
+      'Schema version',
+      typeof getSchemaVersion_ ===
+        'function'
+        ? (
+            getSchemaVersion_() +
+            '/' +
+            CURRENT_SCHEMA_VERSION
+          )
+        : '—',
     ],
   ];
 
@@ -769,14 +1088,11 @@ function renderDashboardSheet_(
     )
     .setWrap(
       true
-    )
-    .setVerticalAlignment(
-      'middle'
     );
 
   sheet
     .getRange(
-      'A14:A17'
+      'A14:A18'
     )
     .setFontWeight(
       'bold'
@@ -787,7 +1103,7 @@ function renderDashboardSheet_(
 
   sheet
     .getRange(
-      'C14:C17'
+      'C14:C18'
     )
     .setFontWeight(
       'bold'
@@ -795,6 +1111,12 @@ function renderDashboardSheet_(
     .setFontColor(
       '#6b7280'
     );
+
+  renderOperationalWarnings_(
+    sheet,
+    stats,
+    availability
+  );
 
   addDashboardCharts_(
     sheet,
@@ -846,30 +1168,74 @@ function renderDashboardCard_(
     .setValue(
       label +
       '\n' +
-      value
-    )
-    .setWrap(
-      true
-    )
-    .setVerticalAlignment(
-      'middle'
-    )
-    .setHorizontalAlignment(
-      'left'
-    )
-    .setFontColor(
-      '#111827'
+      String(
+        value
+      )
     )
     .setFontWeight(
       'bold'
     )
     .setFontSize(
       14
+    )
+    .setWrap(
+      true
+    )
+    .setVerticalAlignment(
+      'middle'
+    );
+}
+
+function renderOperationalWarnings_(
+  sheet,
+  stats,
+  availability
+) {
+  let message =
+    '● Operational';
+
+  if (
+    availability.state ===
+    'full'
+  ) {
+    message =
+      '● FULL — event capacity reached';
+  } else if (
+    availability.percentage !==
+      null &&
+    availability.percentage >=
+      90
+  ) {
+    message =
+      '⚠ Capacity above 90%';
+  } else if (
+    stats.withoutCv >
+    0
+  ) {
+    message =
+      '● Operational · ' +
+      stats.withoutCv +
+      ' participant(s) without CV';
+  }
+
+  sheet
+    .getRange(
+      'A20:J20'
+    )
+    .merge()
+    .setValue(
+      message
+    )
+    .setBackground(
+      '#f9fafb'
+    )
+    .setFontWeight(
+      'bold'
     );
 }
 
 // -----------------------------------------------------------------------------
-// Dashboard charts
+// Charts
 // -----------------------------------------------------------------------------
 
 function addDashboardCharts_(
@@ -880,109 +1246,47 @@ function addDashboardCharts_(
   dashboard
     .getCharts()
     .forEach(
-      function (chart) {
+      function (
+        chart
+      ) {
         dashboard.removeChart(
           chart
         );
       }
     );
 
-  const statusChart =
-    dashboard
-      .newChart()
-      .asPieChart()
-      .addRange(
-        statisticsSheet
-          .getRange(
-            'A1:B4'
-          )
-      )
-      .setPosition(
-        19,
-        1,
-        0,
-        0
-      )
-      .setOption(
-        'title',
-        'Registration status'
-      )
-      .setOption(
-        'legend',
-        {
-          position:
-            'right',
-        }
-      )
-      .build();
-
-  dashboard.insertChart(
-    statusChart
-  );
-
-  const cvChart =
-    dashboard
-      .newChart()
-      .asPieChart()
-      .addRange(
-        statisticsSheet
-          .getRange(
-            'H1:I3'
-          )
-      )
-      .setPosition(
-        19,
-        5,
-        0,
-        0
-      )
-      .setOption(
-        'title',
-        'CV coverage'
-      )
-      .setOption(
-        'legend',
-        {
-          position:
-            'right',
-        }
-      )
-      .build();
-
-  dashboard.insertChart(
-    cvChart
-  );
-
-  const yearRows =
-    Object.keys(
-      stats.byYear
-    ).length + 1;
-
   if (
-    yearRows > 1
+    stats.dailyRows.length
   ) {
-    const yearChart =
+    const lastRow =
+      stats.dailyRows.length +
+      1;
+
+    const dailyChart =
       dashboard
         .newChart()
-        .asColumnChart()
+        .setChartType(
+          Charts.ChartType
+            .COLUMN
+        )
         .addRange(
           statisticsSheet
             .getRange(
               1,
-              5,
-              yearRows,
+              16,
+              lastRow,
               2
             )
         )
         .setPosition(
-          36,
+          22,
           1,
           0,
           0
         )
         .setOption(
           'title',
-          'Registrations by academic year'
+          'Daily registrations'
         )
         .setOption(
           'legend',
@@ -994,58 +1298,54 @@ function addDashboardCharts_(
         .build();
 
     dashboard.insertChart(
-      yearChart
+      dailyChart
     );
-  }
 
-  const dayRows =
-    Object.keys(
-      stats.byDay
-    ).length + 1;
-
-  if (
-    dayRows > 1
-  ) {
-    const dayChart =
+    const cumulativeChart =
       dashboard
         .newChart()
-        .asLineChart()
+        .setChartType(
+          Charts.ChartType
+            .LINE
+        )
         .addRange(
           statisticsSheet
             .getRange(
               1,
-              14,
-              dayRows,
-              2
+              16,
+              lastRow,
+              1
+            )
+        )
+        .addRange(
+          statisticsSheet
+            .getRange(
+              1,
+              18,
+              lastRow,
+              1
             )
         )
         .setPosition(
-          36,
-          5,
+          22,
+          6,
           0,
           0
         )
         .setOption(
           'title',
-          'Registrations over time'
-        )
-        .setOption(
-          'legend',
-          {
-            position:
-              'none',
-          }
+          'Cumulative registrations'
         )
         .build();
 
     dashboard.insertChart(
-      dayChart
+      cumulativeChart
     );
   }
 }
 
 // -----------------------------------------------------------------------------
-// Dashboard helpers
+// Utility
 // -----------------------------------------------------------------------------
 
 function formatDashboardDate_(
@@ -1053,46 +1353,58 @@ function formatDashboardDate_(
   timezone
 ) {
   if (!value) {
-    return 'No restriction';
+    return '—';
   }
 
-  return Utilities.formatDate(
-    value,
-    timezone ||
+  try {
+    return Utilities.formatDate(
+      value instanceof Date
+        ? value
+        : new Date(
+            value
+          ),
+      timezone ||
       DEFAULT_EVENT_TIMEZONE,
-    'dd/MM/yyyy HH:mm'
-  );
+      'dd/MM/yyyy HH:mm'
+    );
+  } catch (err) {
+    return '—';
+  }
 }
 
 function resetDerivedSheet_(
   sheet
 ) {
   sheet
-    .getRange(
-      1,
-      1,
-      sheet.getMaxRows(),
-      sheet.getMaxColumns()
-    )
-    .breakApart();
-
-  sheet.clear();
-
-  sheet
     .getCharts()
     .forEach(
-      function (chart) {
+      function (
+        chart
+      ) {
         sheet.removeChart(
           chart
         );
       }
     );
+
+  const fullRange =
+    sheet.getDataRange();
+
+  try {
+    fullRange.breakApart();
+  } catch (err) {
+    /*
+     * Safe if there are no merged cells.
+     */
+  }
+
+  fullRange.clear();
 }
 
 function moveControlSheetsToFront_(
   ss,
   dashboard,
-  registrations,
+  registration,
   statistics
 ) {
   ss.setActiveSheet(
@@ -1104,7 +1416,7 @@ function moveControlSheetsToFront_(
   );
 
   ss.setActiveSheet(
-    registrations
+    registration
   );
 
   ss.moveActiveSheet(
@@ -1118,21 +1430,6 @@ function moveControlSheetsToFront_(
   ss.moveActiveSheet(
     3
   );
-
-  const settings =
-    ss.getSheetByName(
-      SETTINGS_SHEET_NAME
-    );
-
-  if (settings) {
-    ss.setActiveSheet(
-      settings
-    );
-
-    ss.moveActiveSheet(
-      4
-    );
-  }
 
   ss.setActiveSheet(
     dashboard

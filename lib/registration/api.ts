@@ -25,10 +25,21 @@ export type RegistrationState =
 export type ParticipantRegistrationStatus =
   | "confirmed"
   | "waitlisted"
-  | "cancelled";
+  | "cancelled"
+  | "checked_in";
+
+export type ParticipantCvStatus =
+  | "none"
+  | "submitted"
+  | "updated";
 
 export type ApiResult<T> =
-  | ({ ok: true } & T)
+  | (
+  {
+    ok: true;
+  } &
+  T
+  )
   | {
   ok: false;
   error: ApiError;
@@ -39,11 +50,12 @@ export type RegisterPayload = {
   name: string;
   email: string;
   mobileNumber: string;
-  curse: string;
+  course: string;
   year: string;
   hasCvConsent: boolean;
   hasGdprConsent: boolean;
   website?: string;
+
   cv?: {
     filename: string;
     mime: string;
@@ -53,52 +65,111 @@ export type RegisterPayload = {
 
 export type RegisterResult = {
   registered: true;
+
   status:
     | "confirmed"
     | "waitlisted";
+
   alreadyRegistered: boolean;
+
   cvUploaded: boolean;
+
   magicLinkSent: boolean;
 };
 
 export type RegistrationAvailability = {
-  state: RegistrationState;
-  opensAt: string | null;
-  closesAt: string | null;
-  capacity: number;
-  registered: number;
-  waitlisted: number;
-  remaining: number | null;
-  percentage: number | null;
-  waitlistEnabled: boolean;
-  maxWaitlist: number;
-  eventName: string;
+  state:
+    RegistrationState;
+
+  opensAt:
+    string | null;
+
+  closesAt:
+    string | null;
+
+  capacity:
+    number;
+
+  registered:
+    number;
+
+  waitlisted:
+    number;
+
+  remaining:
+    number | null;
+
+  percentage:
+    number | null;
+
+  waitlistEnabled:
+    boolean;
+
+  maxWaitlist:
+    number;
+
+  eventName:
+    string;
 };
 
 export type StatusResult = {
-  name: string;
-  email: string;
+  registrationId:
+    string;
+
+  name:
+    string;
+
+  email:
+    string;
 
   registrationStatus:
     ParticipantRegistrationStatus;
 
-  hasCv: boolean;
-  cvName: string;
-  cvUpdatedAt: string;
+  cvStatus:
+    ParticipantCvStatus;
 
-  cvUploadsOpen: boolean;
-  cvDeadline: string | null;
+  hasCv:
+    boolean;
+
+  cvName:
+    string;
+
+  cvSubmittedAt:
+    string;
+
+  cvUpdatedAt:
+    string;
+
+  cvUploadsOpen:
+    boolean;
+
+  cvDeadline:
+    string | null;
 };
 
 export type CvFileResult = {
-  filename: string;
-  data: string;
+  filename:
+    string;
+
+  data:
+    string;
 };
 
 export type UploadResult = {
-  uploaded: true;
-  cvName: string;
-  cvUpdatedAt: string;
+  uploaded:
+    true;
+
+  cvStatus:
+    ParticipantCvStatus;
+
+  cvName:
+    string;
+
+  cvSubmittedAt:
+    string;
+
+  cvUpdatedAt:
+    string;
 };
 
 const SCRIPT_URL =
@@ -110,33 +181,45 @@ const GENERIC_ERROR =
   "Unable to contact the server. Check your connection and try again.";
 
 function networkError(
-  message = GENERIC_ERROR,
+  message =
+  GENERIC_ERROR,
 ): ApiResult<never> {
   return {
-    ok: false,
-    error: "network",
+    ok:
+      false,
+
+    error:
+      "network",
+
     message,
   };
 }
 
 async function post<T>(
   payload:
-  Record<string, unknown>,
-): Promise<ApiResult<T>> {
+  Record<
+    string,
+    unknown
+  >,
+): Promise<
+  ApiResult<T>
+> {
   if (!SCRIPT_URL) {
     return networkError(
       "Form currently unavailable. Contact us via email or message.",
     );
   }
 
-  let response: Response;
+  let response:
+    Response;
 
   try {
     response =
       await fetch(
         SCRIPT_URL,
         {
-          method: "POST",
+          method:
+            "POST",
 
           headers: {
             "Content-Type":
@@ -156,13 +239,16 @@ async function post<T>(
     return networkError();
   }
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     return networkError();
   }
 
   try {
     return (
-      await response.json()
+      await response
+        .json()
     ) as ApiResult<T>;
   } catch {
     return networkError();
@@ -170,20 +256,32 @@ async function post<T>(
 }
 
 export function register(
-  payload: RegisterPayload,
+  payload:
+  RegisterPayload,
 ): Promise<
-  ApiResult<RegisterResult>
+  ApiResult<
+    RegisterResult
+  >
 > {
-  return post<RegisterResult>({
-    action: "register",
-    website: "",
+  return post<
+    RegisterResult
+  >({
+    action:
+      "register",
+
+    website:
+      "",
+
     ...payload,
   });
 }
 
-export function fetchRegistrationStatus(): Promise<
-  ApiResult<RegistrationAvailability>
-> {
+export function fetchRegistrationStatus():
+  Promise<
+    ApiResult<
+      RegistrationAvailability
+    >
+  > {
   return post<
     RegistrationAvailability
   >({
@@ -193,40 +291,63 @@ export function fetchRegistrationStatus(): Promise<
 }
 
 export function fetchStatus(
-  token: string,
+  token:
+  string,
 ): Promise<
-  ApiResult<StatusResult>
+  ApiResult<
+    StatusResult
+  >
 > {
-  return post<StatusResult>({
+  return post<
+    StatusResult
+  >({
     action:
       "fetch_status",
+
     token,
   });
 }
 
 export function fetchCv(
-  token: string,
+  token:
+  string,
 ): Promise<
-  ApiResult<CvFileResult>
+  ApiResult<
+    CvFileResult
+  >
 > {
-  return post<CvFileResult>({
+  return post<
+    CvFileResult
+  >({
     action:
       "fetch_cv",
+
     token,
   });
 }
 
 export function uploadCv(
   args: {
-    token: string;
-    filename: string;
-    mime: string;
-    data: string;
+    token:
+      string;
+
+    filename:
+      string;
+
+    mime:
+      string;
+
+    data:
+      string;
   },
 ): Promise<
-  ApiResult<UploadResult>
+  ApiResult<
+    UploadResult
+  >
 > {
-  return post<UploadResult>({
+  return post<
+    UploadResult
+  >({
     action:
       "upload",
 
@@ -235,17 +356,21 @@ export function uploadCv(
 }
 
 export function resendLink(
-  email: string,
+  email:
+  string,
 ): Promise<
   ApiResult<{
-    sent: true;
+    sent:
+      true;
   }>
 > {
   return post<{
-    sent: true;
+    sent:
+      true;
   }>({
     action:
       "resend",
+
     email,
   });
 }
