@@ -1,11 +1,12 @@
 /**
  * DETI+ 2026 - schema migrations
  *
- * Migrations are intentionally non-destructive.
+ * Migrations are:
  *
- * Legacy columns are kept while the application is gradually moved to the
- * current schema. They can be removed in a later release once every consumer
- * has been migrated.
+ * - non-destructive;
+ * - idempotent;
+ * - backwards-compatible;
+ * - safe to run multiple times.
  */
 
 const SCHEMA_VERSION_PROPERTY =
@@ -20,18 +21,9 @@ const REGISTRATION_ID_PREFIX =
 const REGISTRATION_ID_PADDING =
   4;
 
-/**
- * Current operational schema.
- *
- * Important:
- * legacy fields such as:
- *
- * - timestamp
- * - curse
- * - state
- *
- * are deliberately NOT removed by migrations.
- */
+const MIGRATION_LOCK_TIMEOUT_MS =
+  5000;
+
 const CURRENT_REGISTRATION_COLUMNS = [
   'registrationId',
   'course',
@@ -45,89 +37,178 @@ const CURRENT_REGISTRATION_COLUMNS = [
   'notes',
 ];
 
-/**
- * Public migration entrypoint.
- *
- * Can safely be executed more than once.
- */
+// -----------------------------------------------------------------------------
+// Public entrypoint
+// -----------------------------------------------------------------------------
+
 function migrateSystem() {
+  console.log(
+    '[migration] Starting...'
+  );
+
   const lock =
     LockService.getScriptLock();
 
-  lock.waitLock(
-    LOCK_TIMEOUT_MS
-  );
+  /*
+   * Never sit indefinitely waiting for public registration/admin executions.
+   */
+  const acquired =
+    lock.tryLock(
+      MIGRATION_LOCK_TIMEOUT_MS
+    );
+
+  if (!acquired) {
+    throw new Error(
+      'Migration could not acquire the system lock. ' +
+      'Another registration/admin execution is currently running. ' +
+      'Try migrateSystem() again.'
+    );
+  }
 
   try {
     const initialVersion =
       getSchemaVersion_();
 
-    let version =
-      initialVersion;
+    console.log(
+      '[migration] Current schema version: ' +
+      initialVersion
+    );
 
     /*
-     * Version 0 represents a project that existed before versioned
-     * migrations were introduced.
+     * Important:
+     *
+     * Open the spreadsheet directly here instead of getSheet_().
+     *
+     * getSheet_() also performs schema repair, which would make the migration
+     * run the same work twice.
      */
-    if (
-      version < 1
-    ) {
-      migrateToSchemaVersion1_();
+    const ss =
+      getSpreadsheet_();
 
-      version = 1;
+    let sheet =
+      ss.getSheetByName(
+        SHEET_NAME
+      );
+
+    if (!sheet) {
+      console.log(
+        '[migration] Registration sheet does not exist. Creating it.'
+      );
+
+      sheet =
+        ss.insertSheet(
+          SHEET_NAME
+        );
+
+      sheet
+        .getRange(
+          1,
+          1,
+          1,
+          HEADERS.length
+        )
+        .setValues([
+          HEADERS,
+        ]);
 
       setSchemaVersion_(
-        version
+        CURRENT_SCHEMA_VERSION
       );
-    }
 
-    if (
-      version < 2
-    ) {
-      migrateToSchemaVersion2_();
-
-      version = 2;
-
-      setSchemaVersion_(
-        version
+      console.log(
+        '[migration] Fresh Registration sheet created.'
       );
-    }
 
-    /*
-     * Even when already migrated, repairing the current schema makes the
-     * operation idempotent and useful if somebody accidentally removed a
-     * column.
-     */
-    ensureCurrentRegistrationSchema_();
+      return {
+        ok:
+          true,
+
+        previousVersion:
+          initialVersion,
+
+        version:
+          CURRENT_SCHEMA_VERSION,
+
+        migratedRows:
+          0,
+      };
+    }
 
     console.log(
-      'DETI+ schema migration completed. ' +
-      'Version: ' +
-      version
+      '[migration] Registration sheet found.'
+    );
+
+    /*
+     * Ensure current columns once.
+     */
+    const addedColumns =
+      ensureMigrationColumns_(
+        sheet
+      );
+
+    console.log(
+      '[migration] Missing columns added: ' +
+      addedColumns
+    );
+
+    const result =
+      migrateRegistrationData_(
+        sheet
+      );
+
+    console.log(
+      '[migration] Rows inspected: ' +
+      result.inspected
+    );
+
+    console.log(
+      '[migration] Rows changed: ' +
+      result.changed
+    );
+
+    setSchemaVersion_(
+      CURRENT_SCHEMA_VERSION
+    );
+
+    SpreadsheetApp.flush();
+
+    console.log(
+      '[migration] Completed successfully. Schema v' +
+      CURRENT_SCHEMA_VERSION
     );
 
     return {
-      ok: true,
+      ok:
+        true,
 
       previousVersion:
         initialVersion,
 
       version:
-        version,
-
-      currentVersion:
         CURRENT_SCHEMA_VERSION,
+
+      addedColumns:
+        addedColumns,
+
+      inspectedRows:
+        result.inspected,
+
+      migratedRows:
+        result.changed,
     };
   } finally {
     lock.releaseLock();
+
+    console.log(
+      '[migration] Lock released.'
+    );
   }
 }
 
-/**
- * Returns the currently stored schema version.
- *
- * Missing or invalid values are considered version 0.
- */
+// -----------------------------------------------------------------------------
+// Schema version
+// -----------------------------------------------------------------------------
+
 function getSchemaVersion_() {
   const value =
     PropertiesService
@@ -144,13 +225,16 @@ function getSchemaVersion_() {
   }
 
   const parsed =
-    Number(value);
+    Number(
+      value
+    );
 
   if (
     !Number.isFinite(
       parsed
     ) ||
-    parsed < 0
+    parsed <
+      0
   ) {
     return 0;
   }
@@ -160,9 +244,6 @@ function getSchemaVersion_() {
   );
 }
 
-/**
- * Stores the current schema version.
- */
 function setSchemaVersion_(
   version
 ) {
@@ -176,613 +257,71 @@ function setSchemaVersion_(
     );
 }
 
-/**
- * Version 1 is the historical schema that existed before migrations.
- *
- * There is intentionally no destructive transformation here.
- */
-function migrateToSchemaVersion1_() {
-  const sheet =
-    getSheet_();
+// -----------------------------------------------------------------------------
+// Columns
+// -----------------------------------------------------------------------------
 
-  ensureLegacyRegistrationHeaders_(
-    sheet
-  );
-
-  console.log(
-    'Schema v1 baseline established.'
-  );
-}
-
-/**
- * Version 2 introduces the proper operational registration schema.
- *
- * The old columns stay in place for backwards compatibility.
- */
-function migrateToSchemaVersion2_() {
-  const sheet =
-    getSheet_();
-
-  ensureCurrentRegistrationColumns_(
-    sheet
-  );
-
-  migrateLegacyRegistrationRows_(
-    sheet
-  );
-
-  console.log(
-    'Schema migrated to v2.'
-  );
-}
-
-/**
- * Repairs/ensures the latest schema without overwriting participant data.
- */
-function ensureCurrentRegistrationSchema_() {
-  const sheet =
-    getSheet_();
-
-  ensureCurrentRegistrationColumns_(
-    sheet
-  );
-
-  migrateLegacyRegistrationRows_(
-    sheet
-  );
-}
-
-/**
- * Ensures the old schema is recognizable.
- *
- * This does not reorder or remove anything.
- */
-function ensureLegacyRegistrationHeaders_(
+function ensureMigrationColumns_(
   sheet
 ) {
-  if (
-    sheet.getLastRow() === 0
-  ) {
-    sheet
-      .getRange(
-        1,
-        1,
-        1,
-        HEADERS.length
-      )
-      .setValues([
-        HEADERS,
-      ]);
-
-    return;
-  }
-
   const map =
-    getRegistrationHeaderMap_(
+    getMigrationHeaderMap_(
       sheet
     );
 
+  let added =
+    0;
+
+  /*
+   * HEADERS contains both canonical and temporary legacy compatibility
+   * columns, so use it as the complete transitional schema.
+   */
   HEADERS.forEach(
     function (
       header
     ) {
-      /*
-       * Existing installations should already have these fields.
-       *
-       * If one is missing, append it rather than changing the physical
-       * position of any existing participant data.
-       */
       if (
-        !map[
+        map[
           header
         ]
       ) {
-        appendRegistrationColumn_(
-          sheet,
+        return;
+      }
+
+      const nextColumn =
+        sheet.getLastColumn() +
+        1;
+
+      sheet
+        .getRange(
+          1,
+          nextColumn
+        )
+        .setValue(
           header
         );
 
-        map[
-          header
-        ] =
-          sheet.getLastColumn();
-      }
+      map[
+        header
+      ] =
+        nextColumn;
+
+      added++;
     }
   );
+
+  return added;
 }
 
-/**
- * Ensures all current columns exist.
- *
- * Missing columns are appended to the right to avoid moving legacy data.
- */
-function ensureCurrentRegistrationColumns_(
-  sheet
-) {
-  const map =
-    getRegistrationHeaderMap_(
-      sheet
-    );
-
-  CURRENT_REGISTRATION_COLUMNS
-    .forEach(
-      function (
-        header
-      ) {
-        if (
-          map[
-            header
-          ]
-        ) {
-          return;
-        }
-
-        appendRegistrationColumn_(
-          sheet,
-          header
-        );
-
-        map[
-          header
-        ] =
-          sheet.getLastColumn();
-      }
-    );
-}
-
-/**
- * Appends a single schema column.
- */
-function appendRegistrationColumn_(
-  sheet,
-  header
-) {
-  const nextColumn =
-    sheet.getLastColumn() +
-    1;
-
-  sheet
-    .getRange(
-      1,
-      nextColumn
-    )
-    .setValue(
-      header
-    );
-}
-
-/**
- * Migrates existing participant rows into the new fields.
- *
- * This operation is idempotent:
- *
- * - already populated new fields are retained;
- * - empty new fields are populated from legacy data;
- * - legacy values are never deleted here.
- */
-function migrateLegacyRegistrationRows_(
-  sheet
-) {
-  const lastRow =
-    sheet.getLastRow();
-
-  if (
-    lastRow < 2
-  ) {
-    return;
-  }
-
-  const lastColumn =
-    sheet.getLastColumn();
-
-  const values =
-    sheet
-      .getRange(
-        1,
-        1,
-        lastRow,
-        lastColumn
-      )
-      .getValues();
-
-  const headers =
-    values[0].map(
-      function (
-        value
-      ) {
-        return String(
-          value || ''
-        ).trim();
-      }
-    );
-
-  const map =
-    headerMapFromValues_(
-      headers
-    );
-
-  const usedRegistrationIds =
-    collectRegistrationIds_(
-      values,
-      map
-    );
-
-  let nextRegistrationNumber =
-    getNextRegistrationNumber_(
-      usedRegistrationIds
-    );
-
-  let changed =
-    false;
-
-  for (
-    let rowIndex = 1;
-    rowIndex <
-    values.length;
-    rowIndex++
-  ) {
-    const row =
-      values[
-        rowIndex
-      ];
-
-    if (
-      isRegistrationRowEmpty_(
-        row,
-        map
-      )
-    ) {
-      continue;
-    }
-
-    const legacyState =
-      normalizedMigrationValue_(
-        valueByMappedHeader_(
-          row,
-          map,
-          'state'
-        )
-      ).toLowerCase();
-
-    const cvFileId =
-      normalizedMigrationValue_(
-        valueByMappedHeader_(
-          row,
-          map,
-          'cvFileId'
-        )
-      );
-
-    const course =
-      firstNonEmptyMigrationValue_([
-        valueByMappedHeader_(
-          row,
-          map,
-          'course'
-        ),
-
-        valueByMappedHeader_(
-          row,
-          map,
-          'curse'
-        ),
-      ]);
-
-    const registeredAt =
-      firstNonEmptyRawValue_([
-        valueByMappedHeader_(
-          row,
-          map,
-          'registeredAt'
-        ),
-
-        valueByMappedHeader_(
-          row,
-          map,
-          'timestamp'
-        ),
-      ]);
-
-    const registrationStatus =
-      inferRegistrationStatus_(
-        legacyState
-      );
-
-    const cvStatus =
-      inferCvStatus_(
-        row,
-        map,
-        legacyState,
-        cvFileId
-      );
-
-    /*
-     * registrationId
-     */
-    if (
-      isMappedCellEmpty_(
-        row,
-        map,
-        'registrationId'
-      )
-    ) {
-      let registrationId;
-
-      do {
-        registrationId =
-          formatRegistrationId_(
-            nextRegistrationNumber
-          );
-
-        nextRegistrationNumber++;
-      } while (
-        usedRegistrationIds[
-          registrationId
-        ]
-      );
-
-      setMappedCellValue_(
-        row,
-        map,
-        'registrationId',
-        registrationId
-      );
-
-      usedRegistrationIds[
-        registrationId
-      ] =
-        true;
-
-      changed =
-        true;
-    }
-
-    /*
-     * course
-     */
-    if (
-      isMappedCellEmpty_(
-        row,
-        map,
-        'course'
-      ) &&
-      course !== ''
-    ) {
-      setMappedCellValue_(
-        row,
-        map,
-        'course',
-        course
-      );
-
-      changed =
-        true;
-    }
-
-    /*
-     * registrationStatus
-     */
-    if (
-      isMappedCellEmpty_(
-        row,
-        map,
-        'registrationStatus'
-      )
-    ) {
-      setMappedCellValue_(
-        row,
-        map,
-        'registrationStatus',
-        registrationStatus
-      );
-
-      changed =
-        true;
-    }
-
-    /*
-     * cvStatus
-     */
-    if (
-      isMappedCellEmpty_(
-        row,
-        map,
-        'cvStatus'
-      )
-    ) {
-      setMappedCellValue_(
-        row,
-        map,
-        'cvStatus',
-        cvStatus
-      );
-
-      changed =
-        true;
-    }
-
-    /*
-     * registeredAt
-     */
-    if (
-      isMappedCellEmpty_(
-        row,
-        map,
-        'registeredAt'
-      ) &&
-      registeredAt !== ''
-    ) {
-      setMappedCellValue_(
-        row,
-        map,
-        'registeredAt',
-        registeredAt
-      );
-
-      changed =
-        true;
-    }
-
-    /*
-     * For legacy rows we only know the latest stored CV timestamp.
-     *
-     * If a participant already has a CV, cvUpdatedAt is the best available
-     * historical value for the initial submission time.
-     */
-    if (
-      cvFileId !== '' &&
-      isMappedCellEmpty_(
-        row,
-        map,
-        'cvSubmittedAt'
-      )
-    ) {
-      const legacyCvDate =
-        firstNonEmptyRawValue_([
-          valueByMappedHeader_(
-            row,
-            map,
-            'cvUpdatedAt'
-          ),
-
-          registeredAt,
-        ]);
-
-      if (
-        legacyCvDate !== ''
-      ) {
-        setMappedCellValue_(
-          row,
-          map,
-          'cvSubmittedAt',
-          legacyCvDate
-        );
-
-        changed =
-          true;
-      }
-    }
-
-    /*
-     * checkedIn defaults to FALSE for existing rows.
-     */
-    if (
-      isMappedCellEmpty_(
-        row,
-        map,
-        'checkedIn'
-      )
-    ) {
-      setMappedCellValue_(
-        row,
-        map,
-        'checkedIn',
-        false
-      );
-
-      changed =
-        true;
-    }
-
-    /*
-     * cancelledAt cannot be accurately reconstructed from the old schema.
-     * Leave it blank rather than inventing a timestamp.
-     *
-     * checkedInAt and notes are also intentionally left blank.
-     */
-  }
-
-  if (
-    changed
-  ) {
-    sheet
-      .getRange(
-        1,
-        1,
-        values.length,
-        headers.length
-      )
-      .setValues(
-        values
-      );
-  }
-}
-
-/**
- * Infers registration status from the old combined state.
- */
-function inferRegistrationStatus_(
-  legacyState
-) {
-  switch (
-    legacyState
-  ) {
-    case 'waitlisted':
-      return 'waitlisted';
-
-    case 'cancelled':
-      return 'cancelled';
-
-    case 'checked_in':
-      return 'checked_in';
-
-    case 'registered':
-    case 'cv_delivered':
-    case '':
-    default:
-      return 'confirmed';
-  }
-}
-
-/**
- * Infers CV status using the information that actually exists.
- *
- * Legacy data cannot reliably tell whether a file was replaced multiple
- * times, so historical CVs are migrated as "submitted".
- */
-function inferCvStatus_(
-  row,
-  map,
-  legacyState,
-  cvFileId
-) {
-  const existingStatus =
-    normalizedMigrationValue_(
-      valueByMappedHeader_(
-        row,
-        map,
-        'cvStatus'
-      )
-    ).toLowerCase();
-
-  if (
-    existingStatus !== ''
-  ) {
-    return existingStatus;
-  }
-
-  if (
-    cvFileId !== '' ||
-    legacyState ===
-      'cv_delivered'
-  ) {
-    return 'submitted';
-  }
-
-  return 'none';
-}
-
-/**
- * Builds a header → 1-based column map from the live spreadsheet.
- */
-function getRegistrationHeaderMap_(
+function getMigrationHeaderMap_(
   sheet
 ) {
   const lastColumn =
     sheet.getLastColumn();
 
   if (
-    lastColumn < 1
+    lastColumn <
+    1
   ) {
     return {};
   }
@@ -795,45 +334,35 @@ function getRegistrationHeaderMap_(
         1,
         lastColumn
       )
-      .getValues()[0]
-      .map(
-        function (
-          value
-        ) {
-          return String(
-            value || ''
-          ).trim();
-        }
-      );
+      .getValues()[0];
 
-  return headerMapFromValues_(
+  return migrationHeaderMapFromValues_(
     headers
   );
 }
 
-/**
- * Converts a headers array into a 1-based column map.
- */
-function headerMapFromValues_(
+function migrationHeaderMapFromValues_(
   headers
 ) {
   const map = {};
 
   headers.forEach(
     function (
-      header,
+      value,
       index
     ) {
+      const header =
+        String(
+          value ||
+          ''
+        ).trim();
+
       if (
         !header
       ) {
         return;
       }
 
-      /*
-       * Preserve the first matching column if duplicate headers somehow
-       * exist. Duplicates should be fixed manually, not silently remapped.
-       */
       if (
         !map[
           header
@@ -850,127 +379,487 @@ function headerMapFromValues_(
   return map;
 }
 
-/**
- * Returns one cell from a row using a 1-based header map.
- */
-function valueByMappedHeader_(
-  row,
-  map,
-  header
+// -----------------------------------------------------------------------------
+// Data migration
+// -----------------------------------------------------------------------------
+
+function migrateRegistrationData_(
+  sheet
 ) {
-  const column =
-    map[
-      header
-    ];
+  const lastRow =
+    sheet.getLastRow();
+
+  const lastColumn =
+    sheet.getLastColumn();
 
   if (
-    !column
+    lastRow <
+    2
   ) {
-    return '';
+    return {
+      inspected:
+        0,
+
+      changed:
+        0,
+    };
   }
 
-  return row[
-    column - 1
-  ];
-}
+  console.log(
+    '[migration] Reading ' +
+    (
+      lastRow -
+      1
+    ) +
+    ' participant rows...'
+  );
 
-/**
- * Writes one in-memory row value through the live header map.
- */
-function setMappedCellValue_(
-  row,
-  map,
-  header,
-  value
-) {
-  const column =
-    map[
-      header
-    ];
+  /*
+   * Read all data once.
+   */
+  const range =
+    sheet.getRange(
+      1,
+      1,
+      lastRow,
+      lastColumn
+    );
 
+  const values =
+    range.getValues();
+
+  const map =
+    migrationHeaderMapFromValues_(
+      values[0]
+    );
+
+  const usedIds =
+    collectMigrationRegistrationIds_(
+      values,
+      map
+    );
+
+  let nextId =
+    nextMigrationRegistrationNumber_(
+      usedIds
+    );
+
+  let inspected =
+    0;
+
+  let changedRows =
+    0;
+
+  /*
+   * Keep the original header row intact.
+   */
+  const outputRows = [];
+
+  for (
+    let rowIndex = 1;
+    rowIndex <
+    values.length;
+    rowIndex++
+  ) {
+    const row =
+      values[
+        rowIndex
+      ].slice();
+
+    if (
+      migrationRowIsEmpty_(
+        row,
+        map
+      )
+    ) {
+      outputRows.push(
+        row
+      );
+
+      continue;
+    }
+
+    inspected++;
+
+    let rowChanged =
+      false;
+
+    // -----------------------------------------------------------------------
+    // Legacy source values
+    // -----------------------------------------------------------------------
+
+    const legacyState =
+      migrationString_(
+        migrationGet_(
+          row,
+          map,
+          'state'
+        )
+      )
+        .toLowerCase();
+
+    const cvFileId =
+      migrationString_(
+        migrationGet_(
+          row,
+          map,
+          'cvFileId'
+        )
+      );
+
+    const legacyCourse =
+      migrationFirstString_([
+        migrationGet_(
+          row,
+          map,
+          'course'
+        ),
+
+        migrationGet_(
+          row,
+          map,
+          'curse'
+        ),
+      ]);
+
+    const legacyRegisteredAt =
+      migrationFirstRaw_([
+        migrationGet_(
+          row,
+          map,
+          'registeredAt'
+        ),
+
+        migrationGet_(
+          row,
+          map,
+          'timestamp'
+        ),
+      ]);
+
+    // -----------------------------------------------------------------------
+    // registrationId
+    // -----------------------------------------------------------------------
+
+    if (
+      migrationIsEmpty_(
+        migrationGet_(
+          row,
+          map,
+          'registrationId'
+        )
+      )
+    ) {
+      let id;
+
+      do {
+        id =
+          formatRegistrationId_(
+            nextId
+          );
+
+        nextId++;
+      } while (
+        usedIds[
+          id
+        ]
+      );
+
+      migrationSet_(
+        row,
+        map,
+        'registrationId',
+        id
+      );
+
+      usedIds[
+        id
+      ] =
+        true;
+
+      rowChanged =
+        true;
+    }
+
+    // -----------------------------------------------------------------------
+    // course
+    // -----------------------------------------------------------------------
+
+    if (
+      migrationIsEmpty_(
+        migrationGet_(
+          row,
+          map,
+          'course'
+        )
+      ) &&
+      legacyCourse
+    ) {
+      migrationSet_(
+        row,
+        map,
+        'course',
+        legacyCourse
+      );
+
+      rowChanged =
+        true;
+    }
+
+    // -----------------------------------------------------------------------
+    // registrationStatus
+    // -----------------------------------------------------------------------
+
+    if (
+      migrationIsEmpty_(
+        migrationGet_(
+          row,
+          map,
+          'registrationStatus'
+        )
+      )
+    ) {
+      migrationSet_(
+        row,
+        map,
+        'registrationStatus',
+        inferMigrationRegistrationStatus_(
+          legacyState
+        )
+      );
+
+      rowChanged =
+        true;
+    }
+
+    // -----------------------------------------------------------------------
+    // cvStatus
+    // -----------------------------------------------------------------------
+
+    if (
+      migrationIsEmpty_(
+        migrationGet_(
+          row,
+          map,
+          'cvStatus'
+        )
+      )
+    ) {
+      migrationSet_(
+        row,
+        map,
+        'cvStatus',
+        inferMigrationCvStatus_(
+          legacyState,
+          cvFileId
+        )
+      );
+
+      rowChanged =
+        true;
+    }
+
+    // -----------------------------------------------------------------------
+    // registeredAt
+    // -----------------------------------------------------------------------
+
+    if (
+      migrationIsEmpty_(
+        migrationGet_(
+          row,
+          map,
+          'registeredAt'
+        )
+      ) &&
+      !migrationIsEmpty_(
+        legacyRegisteredAt
+      )
+    ) {
+      migrationSet_(
+        row,
+        map,
+        'registeredAt',
+        legacyRegisteredAt
+      );
+
+      rowChanged =
+        true;
+    }
+
+    // -----------------------------------------------------------------------
+    // cvSubmittedAt
+    // -----------------------------------------------------------------------
+
+    if (
+      cvFileId &&
+      migrationIsEmpty_(
+        migrationGet_(
+          row,
+          map,
+          'cvSubmittedAt'
+        )
+      )
+    ) {
+      const firstCvDate =
+        migrationFirstRaw_([
+          migrationGet_(
+            row,
+            map,
+            'cvUpdatedAt'
+          ),
+
+          legacyRegisteredAt,
+        ]);
+
+      if (
+        !migrationIsEmpty_(
+          firstCvDate
+        )
+      ) {
+        migrationSet_(
+          row,
+          map,
+          'cvSubmittedAt',
+          firstCvDate
+        );
+
+        rowChanged =
+          true;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // checkedIn
+    // -----------------------------------------------------------------------
+
+    if (
+      migrationIsEmpty_(
+        migrationGet_(
+          row,
+          map,
+          'checkedIn'
+        )
+      )
+    ) {
+      const isCheckedIn =
+        legacyState ===
+        'checked_in';
+
+      migrationSet_(
+        row,
+        map,
+        'checkedIn',
+        isCheckedIn
+      );
+
+      rowChanged =
+        true;
+    }
+
+    /*
+     * We deliberately do NOT invent:
+     *
+     * - checkedInAt
+     * - cancelledAt
+     * - notes
+     *
+     * Historical data does not contain reliable timestamps for those events.
+     */
+
+    outputRows.push(
+      row
+    );
+
+    if (
+      rowChanged
+    ) {
+      changedRows++;
+    }
+  }
+
+  /*
+   * Only write when migration actually changed something.
+   *
+   * Crucially, only participant rows are written. The header row is not
+   * rewritten.
+   */
   if (
-    !column
+    changedRows >
+    0
   ) {
-    throw new Error(
-      'Missing registration column: ' +
-      header
+    console.log(
+      '[migration] Writing migrated participant data...'
+    );
+
+    sheet
+      .getRange(
+        2,
+        1,
+        outputRows.length,
+        lastColumn
+      )
+      .setValues(
+        outputRows
+      );
+  } else {
+    console.log(
+      '[migration] No participant data changes required.'
     );
   }
 
-  row[
-    column - 1
-  ] =
-    value;
+  return {
+    inspected:
+      inspected,
+
+    changed:
+      changedRows,
+  };
 }
 
-/**
- * Determines whether a mapped cell is empty.
- */
-function isMappedCellEmpty_(
-  row,
-  map,
-  header
+// -----------------------------------------------------------------------------
+// State conversion
+// -----------------------------------------------------------------------------
+
+function inferMigrationRegistrationStatus_(
+  legacyState
 ) {
-  const value =
-    valueByMappedHeader_(
-      row,
-      map,
-      header
-    );
+  switch (
+    legacyState
+  ) {
+    case 'waitlisted':
+      return 'waitlisted';
 
-  return (
-    value === '' ||
-    value === null ||
-    typeof value ===
-      'undefined'
-  );
+    case 'cancelled':
+      return 'cancelled';
+
+    case 'checked_in':
+      return 'checked_in';
+
+    default:
+      return 'confirmed';
+  }
 }
 
-/**
- * Ignores genuinely empty spreadsheet rows.
- */
-function isRegistrationRowEmpty_(
-  row,
-  map
+function inferMigrationCvStatus_(
+  legacyState,
+  cvFileId
 ) {
-  const email =
-    normalizedMigrationValue_(
-      valueByMappedHeader_(
-        row,
-        map,
-        'email'
-      )
-    );
+  if (
+    cvFileId ||
+    legacyState ===
+      'cv_delivered'
+  ) {
+    return 'submitted';
+  }
 
-  const token =
-    normalizedMigrationValue_(
-      valueByMappedHeader_(
-        row,
-        map,
-        'token'
-      )
-    );
-
-  const name =
-    normalizedMigrationValue_(
-      valueByMappedHeader_(
-        row,
-        map,
-        'name'
-      )
-    );
-
-  return (
-    email === '' &&
-    token === '' &&
-    name === ''
-  );
+  return 'none';
 }
 
-/**
- * Collects all existing registration IDs.
- */
-function collectRegistrationIds_(
+// -----------------------------------------------------------------------------
+// IDs
+// -----------------------------------------------------------------------------
+
+function collectMigrationRegistrationIds_(
   values,
   map
 ) {
@@ -979,32 +868,26 @@ function collectRegistrationIds_(
   const column =
     map.registrationId;
 
-  if (
-    !column
-  ) {
+  if (!column) {
     return used;
   }
 
   for (
-    let rowIndex = 1;
-    rowIndex <
+    let i = 1;
+    i <
     values.length;
-    rowIndex++
+    i++
   ) {
-    const value =
-      normalizedMigrationValue_(
-        values[
-          rowIndex
-        ][
+    const id =
+      migrationString_(
+        values[i][
           column - 1
         ]
       );
 
-    if (
-      value !== ''
-    ) {
+    if (id) {
       used[
-        value
+        id
       ] =
         true;
     }
@@ -1013,10 +896,7 @@ function collectRegistrationIds_(
   return used;
 }
 
-/**
- * Finds the next sequential DET26 number.
- */
-function getNextRegistrationNumber_(
+function nextMigrationRegistrationNumber_(
   used
 ) {
   let highest =
@@ -1036,15 +916,12 @@ function getNextRegistrationNumber_(
         return;
       }
 
-      const suffix =
-        id.substring(
-          REGISTRATION_ID_PREFIX
-            .length
-        );
-
       const number =
         Number(
-          suffix
+          id.substring(
+            REGISTRATION_ID_PREFIX
+              .length
+          )
         );
 
       if (
@@ -1063,9 +940,6 @@ function getNextRegistrationNumber_(
   return highest + 1;
 }
 
-/**
- * Formats the human-friendly internal registration ID.
- */
 function formatRegistrationId_(
   number
 ) {
@@ -1080,10 +954,94 @@ function formatRegistrationId_(
   );
 }
 
-/**
- * String-normalizes migration values.
- */
-function normalizedMigrationValue_(
+// -----------------------------------------------------------------------------
+// Row helpers
+// -----------------------------------------------------------------------------
+
+function migrationGet_(
+  row,
+  map,
+  header
+) {
+  const column =
+    map[
+      header
+    ];
+
+  if (!column) {
+    return '';
+  }
+
+  return row[
+    column - 1
+  ];
+}
+
+function migrationSet_(
+  row,
+  map,
+  header,
+  value
+) {
+  const column =
+    map[
+      header
+    ];
+
+  if (!column) {
+    throw new Error(
+      'Migration column missing: ' +
+      header
+    );
+  }
+
+  row[
+    column - 1
+  ] =
+    value;
+}
+
+function migrationRowIsEmpty_(
+  row,
+  map
+) {
+  return (
+    !migrationString_(
+      migrationGet_(
+        row,
+        map,
+        'email'
+      )
+    ) &&
+    !migrationString_(
+      migrationGet_(
+        row,
+        map,
+        'token'
+      )
+    ) &&
+    !migrationString_(
+      migrationGet_(
+        row,
+        map,
+        'name'
+      )
+    )
+  );
+}
+
+function migrationIsEmpty_(
+  value
+) {
+  return (
+    value === '' ||
+    value === null ||
+    typeof value ===
+      'undefined'
+  );
+}
+
+function migrationString_(
   value
 ) {
   if (
@@ -1099,42 +1057,7 @@ function normalizedMigrationValue_(
   ).trim();
 }
 
-/**
- * Returns the first non-empty normalized string.
- */
-function firstNonEmptyMigrationValue_(
-  values
-) {
-  for (
-    let i = 0;
-    i <
-    values.length;
-    i++
-  ) {
-    const normalized =
-      normalizedMigrationValue_(
-        values[
-          i
-        ]
-      );
-
-    if (
-      normalized !== ''
-    ) {
-      return normalized;
-    }
-  }
-
-  return '';
-}
-
-/**
- * Returns the first non-empty raw value.
- *
- * This preserves Date instances from Google Sheets instead of converting
- * timestamps into strings.
- */
-function firstNonEmptyRawValue_(
+function migrationFirstString_(
   values
 ) {
   for (
@@ -1144,17 +1067,33 @@ function firstNonEmptyRawValue_(
     i++
   ) {
     const value =
-      values[
-        i
-      ];
+      migrationString_(
+        values[i]
+      );
 
-    if (
-      value !== '' &&
-      value !== null &&
-      typeof value !==
-        'undefined'
-    ) {
+    if (value) {
       return value;
+    }
+  }
+
+  return '';
+}
+
+function migrationFirstRaw_(
+  values
+) {
+  for (
+    let i = 0;
+    i <
+    values.length;
+    i++
+  ) {
+    if (
+      !migrationIsEmpty_(
+        values[i]
+      )
+    ) {
+      return values[i];
     }
   }
 

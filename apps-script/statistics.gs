@@ -216,6 +216,7 @@ function buildRegistrationStatistics_(
         'cancelled'
       ) {
         stats.cancelled++;
+
         return;
       }
 
@@ -1256,92 +1257,94 @@ function addDashboardCharts_(
     );
 
   if (
-    stats.dailyRows.length
+    !stats.dailyRows.length
   ) {
-    const lastRow =
-      stats.dailyRows.length +
-      1;
-
-    const dailyChart =
-      dashboard
-        .newChart()
-        .setChartType(
-          Charts.ChartType
-            .COLUMN
-        )
-        .addRange(
-          statisticsSheet
-            .getRange(
-              1,
-              16,
-              lastRow,
-              2
-            )
-        )
-        .setPosition(
-          22,
-          1,
-          0,
-          0
-        )
-        .setOption(
-          'title',
-          'Daily registrations'
-        )
-        .setOption(
-          'legend',
-          {
-            position:
-              'none',
-          }
-        )
-        .build();
-
-    dashboard.insertChart(
-      dailyChart
-    );
-
-    const cumulativeChart =
-      dashboard
-        .newChart()
-        .setChartType(
-          Charts.ChartType
-            .LINE
-        )
-        .addRange(
-          statisticsSheet
-            .getRange(
-              1,
-              16,
-              lastRow,
-              1
-            )
-        )
-        .addRange(
-          statisticsSheet
-            .getRange(
-              1,
-              18,
-              lastRow,
-              1
-            )
-        )
-        .setPosition(
-          22,
-          6,
-          0,
-          0
-        )
-        .setOption(
-          'title',
-          'Cumulative registrations'
-        )
-        .build();
-
-    dashboard.insertChart(
-      cumulativeChart
-    );
+    return;
   }
+
+  const lastRow =
+    stats.dailyRows.length +
+    1;
+
+  const dailyChart =
+    dashboard
+      .newChart()
+      .setChartType(
+        Charts.ChartType
+          .COLUMN
+      )
+      .addRange(
+        statisticsSheet
+          .getRange(
+            1,
+            16,
+            lastRow,
+            2
+          )
+      )
+      .setPosition(
+        22,
+        1,
+        0,
+        0
+      )
+      .setOption(
+        'title',
+        'Daily registrations'
+      )
+      .setOption(
+        'legend',
+        {
+          position:
+            'none',
+        }
+      )
+      .build();
+
+  dashboard.insertChart(
+    dailyChart
+  );
+
+  const cumulativeChart =
+    dashboard
+      .newChart()
+      .setChartType(
+        Charts.ChartType
+          .LINE
+      )
+      .addRange(
+        statisticsSheet
+          .getRange(
+            1,
+            16,
+            lastRow,
+            1
+          )
+      )
+      .addRange(
+        statisticsSheet
+          .getRange(
+            1,
+            18,
+            lastRow,
+            1
+          )
+      )
+      .setPosition(
+        22,
+        6,
+        0,
+        0
+      )
+      .setOption(
+        'title',
+        'Cumulative registrations'
+      )
+      .build();
+
+  dashboard.insertChart(
+    cumulativeChart
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -1372,9 +1375,26 @@ function formatDashboardDate_(
   }
 }
 
+/**
+ * Resets a derived sheet safely.
+ *
+ * Important:
+ *
+ * getDataRange().breakApart() is not reliable when a merged range extends
+ * beyond the current data range. Google Sheets then considers only part of
+ * the merged range selected and throws:
+ *
+ * "You must select all cells in a merged range..."
+ *
+ * We therefore inspect the entire physical sheet and break every merged range
+ * individually before clearing content/formatting.
+ */
 function resetDerivedSheet_(
   sheet
 ) {
+  /*
+   * Remove all charts first.
+   */
   sheet
     .getCharts()
     .forEach(
@@ -1387,18 +1407,66 @@ function resetDerivedSheet_(
       }
     );
 
-  const fullRange =
-    sheet.getDataRange();
+  const maxRows =
+    sheet.getMaxRows();
 
-  try {
-    fullRange.breakApart();
-  } catch (err) {
-    /*
-     * Safe if there are no merged cells.
-     */
+  const maxColumns =
+    sheet.getMaxColumns();
+
+  if (
+    maxRows >
+      0 &&
+    maxColumns >
+      0
+  ) {
+    const wholeSheet =
+      sheet.getRange(
+        1,
+        1,
+        maxRows,
+        maxColumns
+      );
+
+    const mergedRanges =
+      wholeSheet
+        .getMergedRanges();
+
+    mergedRanges.forEach(
+      function (
+        mergedRange
+      ) {
+        mergedRange.breakApart();
+      }
+    );
   }
 
-  fullRange.clear();
+  /*
+   * Ensure the structural merge changes are committed before clearing and
+   * rebuilding the layout.
+   */
+  SpreadsheetApp.flush();
+
+  /*
+   * Clearing the entire physical sheet makes the function deterministic:
+   * there cannot be stale formatting outside the previous data range.
+   */
+  if (
+    maxRows >
+      0 &&
+    maxColumns >
+      0
+  ) {
+    sheet
+      .getRange(
+        1,
+        1,
+        maxRows,
+        maxColumns
+      )
+      .clear();
+  }
+
+  SpreadsheetApp.flush();
 }
 
 function moveControlSheetsToFront_(
