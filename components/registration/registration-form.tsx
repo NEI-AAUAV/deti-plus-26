@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { register } from '@/lib/registration/api'
+import { register, type ParticipantRegistrationStatus } from '@/lib/registration/api'
 import { fileToBase64 } from '@/lib/registration/file'
 import {
   EMPTY_REGISTRATION,
@@ -33,10 +33,10 @@ type Status =
   | { kind: "idle" }
   | { kind: "submitting" }
   | { kind: "error"; message: string }
-  | { kind: "done"; alreadyRegistered: boolean; cvUploaded: boolean; magicLinkSent: boolean };
+  | { kind: "done"; status: ParticipantRegistrationStatus; alreadyRegistered: boolean; cvUploaded: boolean; magicLinkSent: boolean };
 
 
-export function RegistrationForm() {
+export function RegistrationForm({ mode = 'registration' }: { mode?: 'registration' | 'waitlist' }) {
   const [fields, setFields] = React.useState<RegistrationFields>(EMPTY_REGISTRATION);
   const [errors, setErrors] = React.useState<FieldErrors>({});
   const [status, setStatus] = React.useState<Status>({ kind: "idle" });
@@ -91,7 +91,7 @@ export function RegistrationForm() {
     const result = await register({ ...toPayload(fields), cv, website: honeypot.current })
 
     if (result.ok) {
-      setStatus({ kind: 'done', alreadyRegistered: result.alreadyRegistered, cvUploaded: result.cvUploaded, magicLinkSent: result.magicLinkSent })
+      setStatus({ kind: 'done', status: result.status, alreadyRegistered: result.alreadyRegistered, cvUploaded: result.cvUploaded, magicLinkSent: result.magicLinkSent })
       return
     }
     setStatus({ kind: 'error', message: result.message })
@@ -265,10 +265,10 @@ export function RegistrationForm() {
         {submitting ? (
           <>
             <Loader2 className="animate-spin" aria-hidden="true" />
-            Registering…
+            {mode === 'waitlist' ? 'Joining…' : 'Registering…'}
           </>
         ) : (
-          <><span>Confirm registration</span><span className="transition-transform group-hover:translate-x-1">→</span></>
+          <><span>{mode === 'waitlist' ? 'Join waiting list' : 'Confirm registration'}</span><span className="transition-transform group-hover:translate-x-1">→</span></>
         )}
       </Button>
       <p className="text-center text-xs text-muted-foreground">Free registration · You can update your CV later</p>
@@ -357,20 +357,29 @@ function Consent({
 
 function SuccessPanel({
                         email,
+                        status,
                         alreadyRegistered,
                         cvUploaded,
                         magicLinkSent,
                       }: {
   email: string
+  status: ParticipantRegistrationStatus
   alreadyRegistered: boolean
   cvUploaded: boolean
   magicLinkSent: boolean
 }) {
+  const waitlisted = status === 'waitlisted'
+  const title = alreadyRegistered
+    ? (waitlisted ? 'Already on the waiting list' : 'Already Registered')
+    : (waitlisted ? "You're on the waiting list" : 'Registration confirmed')
+  const summary = alreadyRegistered
+    ? (waitlisted ? 'This email is already on the DETI+ waiting list.' : 'This email is already registered for DETI+.')
+    : (waitlisted ? 'Your details have been received and you have been added to the waiting list. A place is not guaranteed.' : 'Your registration is confirmed.')
   return (
     <div role="status" className="animate-enter-up space-y-8"><div className="border border-accent/30 bg-accent/[0.03] p-6 sm:p-8"><div className="animate-accent-pulse mb-6 flex h-12 w-12 items-center justify-center border border-accent text-accent">✓</div><p className="font-display text-xs uppercase tracking-[0.2em] text-accent">Step 01 complete</p><h2 className="mt-3 font-display text-3xl lowercase text-primary">
-        {alreadyRegistered ? 'Already Registered' : 'Registration confirmed'}
+        {title}
       </h2><p className="mt-5 leading-relaxed text-muted-foreground">
-        {alreadyRegistered ? 'This email is already registered for DETI+.' : 'Your registration is confirmed.'}
+        {summary}
       </p>
       {cvUploaded ? <p className="mt-3 text-sm text-muted-foreground">Your CV was received successfully and is linked to this registration.</p> : null}{magicLinkSent ? <p className="mt-5 leading-relaxed text-muted-foreground">We sent an email to <strong className="text-primary">{email}</strong> with a personal link to submit your CV.</p> : null}</div><div className="grid gap-4 sm:grid-cols-2"><div className="border border-border p-5"><span className="font-display text-xs uppercase tracking-[0.18em] text-accent">01</span><p className="mt-2 font-medium text-primary">Check your email</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">Your personal CV upload link is waiting there.</p></div><div className="border border-border p-5"><span className="font-display text-xs uppercase tracking-[0.18em] text-accent">02</span><p className="mt-2 font-medium text-primary">Upload when ready</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">The link remains valid, so you can submit or replace your CV later.</p></div></div><p className="text-sm text-muted-foreground">Save the email. If you don&apos;t find it, check the spam folder.</p>
     </div>

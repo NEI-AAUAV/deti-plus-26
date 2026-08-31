@@ -5,7 +5,22 @@ export type  ApiError =
   | 'rate_limited'
   | 'unknown_action'
   | 'server_error'
+  | 'registration_disabled'
+  | 'registration_not_started'
+  | 'registration_closed'
+  | 'registration_full'
   | 'network';
+
+export type RegistrationState =
+  | 'disabled'
+  | 'not_started'
+  | 'open'
+  | 'almost_full'
+  | 'full'
+  | 'waitlist'
+  | 'closed';
+
+export type ParticipantRegistrationStatus = 'confirmed' | 'waitlisted';
 
 export type ApiResult<T> =
   | ({ ok: true } & T)
@@ -25,9 +40,24 @@ export type RegisterPayload = {
 
 export type RegisterResult = {
   registered: true;
+  status: ParticipantRegistrationStatus;
   alreadyRegistered: boolean;
   cvUploaded: boolean;
   magicLinkSent: boolean;
+};
+
+export type RegistrationAvailability = {
+  state: RegistrationState;
+  opensAt: string | null;
+  closesAt: string | null;
+  capacity: number;
+  registered: number;
+  waitlisted: number;
+  remaining: number | null;
+  percentage: number | null;
+  waitlistEnabled: boolean;
+  maxWaitlist: number;
+  eventName: string;
 };
 
 export type StatusResult = {
@@ -78,6 +108,10 @@ async function post<T>(payload: Record<string, unknown>): Promise<ApiResult<T>> 
 
 export function register(payload: RegisterPayload): Promise<ApiResult<RegisterResult>> {
   return post<RegisterResult>({action: 'register', website: '', ...payload});
+}
+
+export function fetchRegistrationStatus(): Promise<ApiResult<RegistrationAvailability>> {
+  return post<RegistrationAvailability>({ action: 'registration_status' });
 }
 
 export function fetchStatus(token: string): Promise<ApiResult<StatusResult>> {

@@ -145,7 +145,8 @@ function handleRegister_(body) {
   }
 
   const cvProblem =
-    body.cv && body.cv.data
+    body.cv &&
+    body.cv.data
       ? validateCvPayload_(body.cv)
       : '';
 
@@ -175,30 +176,56 @@ function handleRegister_(body) {
   );
 
   try {
-    const sheet = getSheet_();
+    const sheet =
+      getSheet_();
 
+    /*
+     * IMPORTANT:
+     *
+     * Existing participants are checked BEFORE registration availability.
+     *
+     * Closing registrations must not break existing participants'
+     * magic links or prevent an already registered person from
+     * resubmitting their registration / CV.
+     */
     const existing =
       findRowByEmail_(
         sheet,
         data.email
       );
 
-    // Email already registered:
-    // resend the link instead of creating
-    // a duplicate.
     if (existing) {
-      const hasNewCv = Boolean(
-        body.cv &&
-        body.cv.data
-      );
+      const registrationStatus =
+        registrationStatusFromRecord_(
+          existing.record
+        );
+
+      const hasNewCv =
+        Boolean(
+          body.cv &&
+          body.cv.data
+        );
 
       if (hasNewCv) {
-        saveCv_(
-          sheet,
-          existing.row,
-          existing.record,
-          body.cv
-        );
+        const uploaded =
+          saveCv_(
+            sheet,
+            existing.row,
+            existing.record,
+            body.cv
+          );
+
+        existing.record.cvFileId =
+          uploaded.cvFileId;
+
+        existing.record.cvName =
+          uploaded.cvName;
+
+        existing.record.cvUpdatedAt =
+          uploaded.cvUpdatedAt;
+
+        existing.record.state =
+          uploaded.state;
       }
 
       sendMagicLink_(
@@ -206,40 +233,87 @@ function handleRegister_(body) {
         {
           returning: true,
           cvUploaded: hasNewCv,
+          registrationStatus: registrationStatus,
         }
       );
 
       return ok_({
         registered: true,
+
+        status:
+          registrationStatus,
+
         alreadyRegistered: true,
-        cvUploaded: hasNewCv,
+
+        cvUploaded:
+          hasNewCv,
+
         magicLinkSent: true,
       });
+    }
+
+    /*
+     * Registration availability MUST be evaluated while holding the lock.
+     *
+     * This prevents two simultaneous registrations from both observing
+     * the same last available place.
+     */
+    const availability =
+      getRegistrationState_();
+
+    const admission =
+      getRegistrationAdmission_(
+        availability
+      );
+
+    if (!admission.allowed) {
+      return fail_(
+        admission.error,
+        admission.message
+      );
     }
 
     const token =
       Utilities.getUuid();
 
-    const record = Object.assign(
-      {},
-      data,
-      {
-        timestamp: new Date(),
-        token: token,
+    const record =
+      Object.assign(
+        {},
+        data,
+        {
+          timestamp:
+            new Date(),
 
-        cvFileId: '',
-        cvName: '',
-        cvUpdatedAt: '',
+          token:
+            token,
 
-        state: 'registered',
-      }
-    );
+          cvFileId:
+            '',
+
+          cvName:
+            '',
+
+          cvUpdatedAt:
+            '',
+
+          state:
+            admission.storedState,
+        }
+      );
 
     sheet.appendRow(
-      HEADERS.map(function (header) {
-        return record[header];
-      })
+      HEADERS.map(
+        function (header) {
+          return record[header];
+        }
+      )
     );
+
+    const row =
+      sheet.getLastRow();
+
+    let cvUploaded =
+      false;
 
     if (
       body.cv &&
@@ -248,7 +322,7 @@ function handleRegister_(body) {
       const uploaded =
         saveCv_(
           sheet,
-          sheet.getLastRow(),
+          row,
           record,
           body.cv
         );
@@ -263,31 +337,39 @@ function handleRegister_(body) {
         uploaded.cvUpdatedAt;
 
       record.state =
-        'cv_delivered';
+        uploaded.state;
+
+      cvUploaded =
+        true;
     }
 
     sendMagicLink_(
       record,
       {
         returning: false,
-        cvUploaded: Boolean(
-          body.cv &&
-          body.cv.data
-        ),
+
+        cvUploaded:
+          cvUploaded,
+
+        registrationStatus:
+          admission.registrationStatus,
       }
     );
 
     return ok_({
       registered: true,
 
-      alreadyRegistered: false,
+      status:
+        admission.registrationStatus,
 
-      cvUploaded: Boolean(
-        body.cv &&
-        body.cv.data
-      ),
+      alreadyRegistered:
+        false,
 
-      magicLinkSent: true,
+      cvUploaded:
+        cvUploaded,
+
+      magicLinkSent:
+        true,
     });
   } finally {
     lock.releaseLock();
@@ -312,16 +394,23 @@ function handleStatus_(body) {
     found.record;
 
   return ok_({
-    name: record.name,
+    name:
+      record.name,
 
     email:
       maskEmail_(
         record.email
       ),
 
-    hasCv: Boolean(
-      record.cvFileId
-    ),
+    registrationStatus:
+      registrationStatusFromRecord_(
+        record
+      ),
+
+    hasCv:
+      Boolean(
+        record.cvFileId
+      ),
 
     cvName:
       record.cvName || '',
@@ -465,7 +554,9 @@ function handleUpload_(body) {
       );
     }
 
-    if (!isPdf_(bytes)) {
+    if (
+      !isPdf_(bytes)
+    ) {
       return fail_(
         'invalid_file',
         'The file is not a valid PDF.'
@@ -484,25 +575,37 @@ function handleUpload_(body) {
           filename:
             body.filename,
 
-          mime: mime,
+          mime:
+            mime,
 
-          bytes: bytes,
+          bytes:
+            bytes,
         }
       );
 
-    const safeName =
+    record.cvFileId =
+      uploaded.cvFileId;
+
+    record.cvName =
       uploaded.cvName;
+
+    record.cvUpdatedAt =
+      uploaded.cvUpdatedAt;
+
+    record.state =
+      uploaded.state;
 
     sendCvConfirmation_(
       record,
-      safeName
+      uploaded.cvName
     );
 
     return ok_({
-      uploaded: true,
+      uploaded:
+        true,
 
       cvName:
-        safeName,
+        uploaded.cvName,
 
       cvUpdatedAt:
         uploaded.cvUpdatedAt,
@@ -512,6 +615,17 @@ function handleUpload_(body) {
   }
 }
 
+/**
+ * Stores or replaces a participant CV.
+ *
+ * IMPORTANT:
+ *
+ * "waitlisted" is a registration state.
+ * "cv_delivered" is the legacy state used for confirmed registrations
+ * that have submitted a CV.
+ *
+ * Uploading a CV must NEVER promote someone from waitlisted to confirmed.
+ */
 function saveCv_(
   sheet,
   row,
@@ -557,7 +671,9 @@ function saveCv_(
 
   const folder =
     DriveApp.getFolderById(
-      prop_('CV_FOLDER_ID')
+      prop_(
+        'CV_FOLDER_ID'
+      )
     );
 
   if (
@@ -589,6 +705,24 @@ function saveCv_(
   const now =
     new Date();
 
+  const currentState =
+    String(
+      record.state || ''
+    )
+      .trim()
+      .toLowerCase();
+
+  /*
+   * Preserve the waiting-list state.
+   *
+   * Confirmed registrations keep the existing legacy behaviour and become
+   * cv_delivered after a successful CV upload.
+   */
+  const nextState =
+    currentState === 'waitlisted'
+      ? 'waitlisted'
+      : 'cv_delivered';
+
   setCells_(
     sheet,
     row,
@@ -603,7 +737,7 @@ function saveCv_(
         now,
 
       state:
-        'cv_delivered',
+        nextState,
     }
   );
 
@@ -616,6 +750,9 @@ function saveCv_(
 
     cvUpdatedAt:
       now.toISOString(),
+
+    state:
+      nextState,
   };
 }
 
@@ -654,7 +791,9 @@ function validateCvPayload_(
     return 'The CV must not exceed 5 MB.';
   }
 
-  if (!isPdf_(bytes)) {
+  if (
+    !isPdf_(bytes)
+  ) {
     return 'The file is not a valid PDF.';
   }
 
@@ -672,7 +811,9 @@ function handleResend_(body) {
     );
 
   if (
-    !isValidEmail_(email)
+    !isValidEmail_(
+      email
+    )
   ) {
     return fail_(
       'invalid',
@@ -682,7 +823,8 @@ function handleResend_(body) {
 
   if (
     isRateLimited_(
-      'resend:' + email
+      'resend:' +
+      email
     )
   ) {
     return fail_(
@@ -701,7 +843,13 @@ function handleResend_(body) {
     sendMagicLink_(
       found.record,
       {
-        returning: true,
+        returning:
+          true,
+
+        registrationStatus:
+          registrationStatusFromRecord_(
+            found.record
+          ),
       }
     );
   }
@@ -719,6 +867,9 @@ function sendMagicLink_(
   record,
   opts
 ) {
+  const options =
+    opts || {};
+
   const link =
     cvLink_(
       record.token
@@ -726,33 +877,67 @@ function sendMagicLink_(
 
   const cvUploaded =
     Boolean(
-      opts &&
-      opts.cvUploaded
+      options.cvUploaded
     );
 
-  const intro =
-    opts &&
-    opts.returning
-      ? (
-          cvUploaded
-            ? 'Your CV was received and your registration is already active. Here is your personal link to view or replace it.'
-            : 'Here is your personal link again to submit, view or replace your CV.'
-        )
-      : (
-          cvUploaded
-            ? 'Your registration for DETI+ is confirmed and your CV was received. Use this personal link to view or replace it.'
-            : 'Your registration for DETI+ is confirmed. Use this personal link to submit, view or replace your CV.'
-        );
+  const registrationStatus =
+    options.registrationStatus ||
+    registrationStatusFromRecord_(
+      record
+    );
+
+  let subject;
+  let intro;
+
+  if (
+    registrationStatus ===
+    'waitlisted'
+  ) {
+    subject =
+      'DETI+ 2026 — waiting list';
+
+    if (
+      options.returning
+    ) {
+      intro =
+        cvUploaded
+          ? 'Your CV was received. You are already on the DETI+ waiting list. Here is your personal link to view or replace your CV.'
+          : 'You are already on the DETI+ waiting list. Here is your personal link to submit, view or replace your CV.';
+    } else {
+      intro =
+        cvUploaded
+          ? 'The available places for DETI+ are currently filled, so you have been added to the waiting list. Your CV was also received.'
+          : 'The available places for DETI+ are currently filled, so you have been added to the waiting list. Use your personal link to submit or manage your CV.';
+    }
+  } else {
+    subject =
+      'DETI+ 2026 — your registration';
+
+    if (
+      options.returning
+    ) {
+      intro =
+        cvUploaded
+          ? 'Your CV was received and your registration is already active. Here is your personal link to view or replace it.'
+          : 'Here is your personal link again to submit, view or replace your CV.';
+    } else {
+      intro =
+        cvUploaded
+          ? 'Your registration for DETI+ is confirmed and your CV was received. Use this personal link to view or replace it.'
+          : 'Your registration for DETI+ is confirmed. Use this personal link to submit, view or replace your CV.';
+    }
+  }
 
   GmailApp.sendEmail(
     record.email,
-    'DETI+ 2026 — your registration',
+    subject,
     textEmail_(
       intro,
       link
     ),
     {
-      name: 'DETI+',
+      name:
+        'DETI+',
 
       replyTo:
         prop_(
@@ -773,10 +958,23 @@ function sendCvConfirmation_(
   record,
   filename
 ) {
+  const registrationStatus =
+    registrationStatusFromRecord_(
+      record
+    );
+
   const intro =
-    'We have received your CV (' +
-    filename +
-    '). You can replace it at any time using the same link.';
+    registrationStatus === 'waitlisted'
+      ? (
+          'We have received your CV (' +
+          filename +
+          '). You remain on the DETI+ waiting list and can replace your CV using the same personal link.'
+        )
+      : (
+          'We have received your CV (' +
+          filename +
+          '). You can replace it at any time using the same link.'
+        );
 
   const link =
     cvLink_(
@@ -791,7 +989,8 @@ function sendCvConfirmation_(
       link
     ),
     {
-      name: 'DETI+',
+      name:
+        'DETI+',
 
       replyTo:
         prop_(
@@ -862,17 +1061,21 @@ function htmlEmail_(
       ',</p>',
 
     '<p>' +
-      escapeHtml_(intro) +
+      escapeHtml_(
+        intro
+      ) +
       '</p>',
 
     '<p style="margin:28px 0">',
 
     '<a href="' +
-      escapeHtml_(link) +
+      escapeHtml_(
+        link
+      ) +
       '" ',
 
     'style="background:#111;color:#fff;padding:12px 22px;border-radius:8px;',
-    'text-decoration:none;display:inline-block;font-weight:600">Send my CV</a>',
+    'text-decoration:none;display:inline-block;font-weight:600">Manage my CV</a>',
 
     '</p>',
 
@@ -995,7 +1198,9 @@ function isValidEmail_(
   );
 }
 
-function isPdf_(bytes) {
+function isPdf_(
+  bytes
+) {
   const signature = [
     0x25,
     0x50,
@@ -1129,7 +1334,9 @@ function prop_(key) {
   const value =
     PropertiesService
       .getScriptProperties()
-      .getProperty(key);
+      .getProperty(
+        key
+      );
 
   if (!value) {
     throw new Error(
@@ -1173,8 +1380,9 @@ function maskEmail_(
   email
 ) {
   const parts =
-    String(email)
-      .split('@');
+    String(
+      email
+    ).split('@');
 
   if (
     parts.length !== 2
@@ -1222,7 +1430,9 @@ function isRateLimited_(
 
   cache.put(
     cacheKey,
-    String(count),
+    String(
+      count
+    ),
     RATE_LIMIT_WINDOW_SECONDS
   );
 

@@ -4,7 +4,13 @@ import { test, expect, type Page } from "@playwright/test";
 // request we send and the states we render — not Google's availability.
 const SCRIPT_HOST = "https://script.google.com/**";
 
-type Stub = { status?: number; body: unknown };
+type Stub = { status?: number; body?: unknown; responses?: Record<string, unknown> };
+
+const openAvailability = {
+  ok: true, state: "open", opensAt: null, closesAt: null, capacity: 500,
+  registered: 100, waitlisted: 0, remaining: 400, percentage: 20,
+  waitlistEnabled: true, maxWaitlist: 0, eventName: "DETI+ 2026",
+};
 
 async function stubScript(page: Page, stub: Stub) {
   const calls: unknown[] = [];
@@ -14,7 +20,7 @@ async function stubScript(page: Page, stub: Stub) {
     await route.fulfill({
       status: stub.status ?? 200,
       contentType: "application/json",
-      body: JSON.stringify(stub.body),
+      body: JSON.stringify(stub.responses?.[String((calls[calls.length - 1] as { action?: string }).action)] ?? stub.body ?? openAvailability),
     });
   });
 
@@ -33,14 +39,14 @@ async function fillValidForm(page: Page) {
 }
 
 test.describe("registration form", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("registration/index.html");
-  });
-
   test("submits the filled fields and confirms", async ({ page }) => {
     const calls = await stubScript(page, {
-      body: { ok: true, registered: true, alreadyRegistered: false, cvUploaded: false, magicLinkSent: true },
+      responses: {
+        registration_status: openAvailability,
+        register: { ok: true, registered: true, status: "confirmed", alreadyRegistered: false, cvUploaded: false, magicLinkSent: true },
+      },
     });
+    await page.goto("registration/index.html");
 
     await fillValidForm(page);
     await page.getByRole("button", { name: /confirm registration/i }).click();
@@ -48,8 +54,8 @@ test.describe("registration form", () => {
     await expect(page.getByText(/registration confirmed/i)).toBeVisible();
     await expect(page.getByText("ana@ua.pt")).toBeVisible();
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toMatchObject({
       action: "register",
       name: "Ana Silva",
       email: "ana@ua.pt",
@@ -62,30 +68,37 @@ test.describe("registration form", () => {
 
   test("blocks submission and reports invalid fields", async ({ page }) => {
     const calls = await stubScript(page, { body: { ok: true } });
+    await page.goto("registration/index.html");
 
     await page.getByRole("button", { name: /confirm registration/i }).click();
 
     await expect(page.getByText(/provide your full name/i)).toBeVisible();
     await expect(page.getByText(/enter a valid email address/i)).toBeVisible();
     await expect(page.getByText(/accept the data policy/i)).toBeVisible();
-    expect(calls, "nothing should reach the server").toHaveLength(0);
+    expect(calls, "only availability should reach the server").toHaveLength(1);
   });
 
   test("surfaces a server-side rejection", async ({ page }) => {
-    await stubScript(page, {
-      body: { ok: false, error: "rate_limited", message: "Too many attempts." },
+    await stubScript(page, { responses: {
+      registration_status: openAvailability,
+      register: { ok: false, error: "registration_full", message: "All available places have been filled." },
+    },
     });
+    await page.goto("registration/index.html");
 
     await fillValidForm(page);
     await page.getByRole("button", { name: /confirm registration/i }).click();
 
-    await expect(page.getByText("Too many attempts.")).toBeVisible();
+    await expect(page.getByText("All available places have been filled.")).toBeVisible();
   });
 
   test("treats an already registered email as success", async ({ page }) => {
-    await stubScript(page, {
-      body: { ok: true, registered: true, alreadyRegistered: true, cvUploaded: false, magicLinkSent: true },
+    await stubScript(page, { responses: {
+      registration_status: openAvailability,
+      register: { ok: true, registered: true, status: "confirmed", alreadyRegistered: true, cvUploaded: false, magicLinkSent: true },
+    },
     });
+    await page.goto("registration/index.html");
 
     await fillValidForm(page);
     await page.getByRole("button", { name: /confirm registration/i }).click();
@@ -95,6 +108,7 @@ test.describe("registration form", () => {
 
   test("requires CV-sharing consent when a CV is selected", async ({ page }) => {
     const calls = await stubScript(page, { body: { ok: true } });
+    await page.goto("registration/index.html");
     await fillValidForm(page);
     await page.locator("#cv").setInputFiles({
       name: "cv.pdf",
@@ -104,13 +118,16 @@ test.describe("registration form", () => {
     await page.getByRole("button", { name: /confirm registration/i }).click();
 
     await expect(page.getByText(/authorize sharing your cv/i)).toBeVisible();
-    expect(calls).toHaveLength(0);
+    expect(calls).toHaveLength(1);
   });
 
   test("sends the selected CV with a registration", async ({ page }) => {
-    const calls = await stubScript(page, {
-      body: { ok: true, registered: true, alreadyRegistered: false, cvUploaded: true, magicLinkSent: true },
+    const calls = await stubScript(page, { responses: {
+      registration_status: openAvailability,
+      register: { ok: true, registered: true, status: "confirmed", alreadyRegistered: false, cvUploaded: true, magicLinkSent: true },
+    },
     });
+    await page.goto("registration/index.html");
     await fillValidForm(page);
     await page.locator("#cv").setInputFiles({
       name: "cv.pdf",
@@ -122,7 +139,48 @@ test.describe("registration form", () => {
     await page.getByRole("button", { name: /confirm registration/i }).click();
 
     await expect(page.getByText(/your cv was received successfully/i)).toBeVisible();
-    expect(calls[0]).toMatchObject({ cv: { filename: "cv.pdf", mime: "application/pdf" } });
+    expect(calls[1]).toMatchObject({ cv: { filename: "cv.pdf", mime: "application/pdf" } });
+  });
+
+  test("shows availability states before exposing the form", async ({ page }) => {
+    await stubScript(page, { body: { ...openAvailability, state: "almost_full", remaining: 2 } });
+    await page.goto("registration/index.html");
+    await expect(page.getByText("Only 2 places remain.")).toBeVisible();
+    await expect(page.getByRole("button", { name: /confirm registration/i })).toBeVisible();
+  });
+
+  test("shows a full event without the form", async ({ page }) => {
+    await stubScript(page, { body: { ...openAvailability, state: "full", registered: 500, remaining: 0 } });
+    await page.goto("registration/index.html");
+    await expect(page.getByRole("heading", { name: /registrations are full/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /confirm registration/i })).toHaveCount(0);
+  });
+
+  test("joins the waitlist and confirms its status", async ({ page }) => {
+    await stubScript(page, { responses: {
+      registration_status: { ...openAvailability, state: "waitlist", registered: 500, remaining: 0 },
+      register: { ok: true, registered: true, status: "waitlisted", alreadyRegistered: false, cvUploaded: false, magicLinkSent: true },
+    } });
+    await page.goto("registration/index.html");
+    await expect(page.getByRole("heading", { name: /join the waiting list/i })).toBeVisible();
+    await fillValidForm(page);
+    await page.getByRole("button", { name: /join waiting list/i }).click();
+    await expect(page.getByText(/you're on the waiting list/i)).toBeVisible();
+  });
+
+  test("keeps the form hidden before registration opens", async ({ page }) => {
+    await stubScript(page, { body: { ...openAvailability, state: "not_started", opensAt: "2026-05-01T10:30:00.000Z" } });
+    await page.goto("registration/index.html");
+    await expect(page.getByRole("heading", { name: /not open yet/i })).toBeVisible();
+    await expect(page.getByText(/Registrations open on 1 May 2026/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /confirm registration/i })).toHaveCount(0);
+  });
+
+  test("keeps the form hidden after registration closes", async ({ page }) => {
+    await stubScript(page, { body: { ...openAvailability, state: "closed" } });
+    await page.goto("registration/index.html");
+    await expect(page.getByRole("heading", { name: /registrations are closed/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /confirm registration/i })).toHaveCount(0);
   });
 });
 
