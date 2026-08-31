@@ -1594,8 +1594,12 @@ test.describe(
         );
 
         await expect(
-          page.getByText(
-            /registration cancelled/i,
+          page.getByRole(
+            "heading",
+            {
+              name:
+                /registration cancelled/i,
+            },
           ),
         ).toBeVisible();
 
