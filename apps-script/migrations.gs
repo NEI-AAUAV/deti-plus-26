@@ -13,7 +13,7 @@ const SCHEMA_VERSION_PROPERTY =
   'SCHEMA_VERSION';
 
 const CURRENT_SCHEMA_VERSION =
-  2;
+  3;
 
 const REGISTRATION_ID_PREFIX =
   'DET26-';
@@ -610,7 +610,13 @@ function migrateRegistrationData_(
     // registrationStatus
     // -----------------------------------------------------------------------
 
-    if (
+    const currentRegistrationStatus = String(migrationGet_(row, map, 'registrationStatus') || '').trim().toLowerCase();
+    const legacyCheckedIn = legacyState === 'checked_in';
+    if (currentRegistrationStatus === 'checked_in' || legacyCheckedIn) {
+      migrationSet_(row, map, 'registrationStatus', 'confirmed');
+      migrationSet_(row, map, 'checkedIn', true);
+      rowChanged = true;
+    } else if (
       migrationIsEmpty_(
         migrationGet_(
           row,
@@ -741,9 +747,7 @@ function migrateRegistrationData_(
         )
       )
     ) {
-      const isCheckedIn =
-        legacyState ===
-        'checked_in';
+      const isCheckedIn = legacyCheckedIn;
 
       migrationSet_(
         row,
@@ -833,7 +837,7 @@ function inferMigrationRegistrationStatus_(
       return 'cancelled';
 
     case 'checked_in':
-      return 'checked_in';
+      return 'confirmed';
 
     default:
       return 'confirmed';

@@ -25,8 +25,7 @@ export type RegistrationState =
 export type ParticipantRegistrationStatus =
   | "confirmed"
   | "waitlisted"
-  | "cancelled"
-  | "checked_in";
+  | "cancelled";
 
 export type ParticipantCvStatus =
   | "none"
@@ -124,6 +123,10 @@ export type StatusResult = {
 
   registrationStatus:
     ParticipantRegistrationStatus;
+
+  checkedIn: boolean;
+
+  checkedInAt: string;
 
   cvStatus:
     ParticipantCvStatus;

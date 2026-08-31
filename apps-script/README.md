@@ -5,6 +5,19 @@ Registrations, CV storage and the confirmation emails are handled by this Apps
 Script project: a Sheet is the database, a private Drive folder is the file
 store, and `GmailApp` sends the magic links from the NEI account.
 
+## Operations runbook
+
+The production flow is **frontend → Apps Script → Sheets/Drive/Email Queue**.
+Set `SHEET_ID`, `CV_FOLDER_ID`, `SITE_URL`, and `EVENT_EMAIL`; then run
+`migrateSystem`, `initializeOperations`, `installOperationalTriggers`, and
+`runHealthCheck` before deployment. The Operations menu processes the email
+queue, exports CSVs, applies protections, promotes the waitlist, and runs
+retention. The canonical registration values are `confirmed`, `waitlisted`,
+and `cancelled`; check-in is stored independently in `checkedIn` and
+`checkedInAt`. Legacy `timestamp`, `curse`, and `state` remain compatibility
+fields only. Before/after the event, take an export backup and run retention
+only after its configured deadline.
+
 ## One-time setup
 
 1. **Create the Sheet.** New Google Sheet, name it e.g. `DETI+ 2026 —

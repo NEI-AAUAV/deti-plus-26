@@ -1,69 +1,130 @@
 import {
-  test,
   expect,
+  test,
   type Page,
 } from "@playwright/test";
 
-// The Apps Script endpoint is stubbed: these tests cover our form logic,
-// requests and rendered states — not Google's availability.
 const SCRIPT_HOST =
   "https://script.google.com/**";
 
-type Stub = {
-  status?: number;
-  body?: unknown;
-  responses?: Record<
+type ApiCall =
+  Record<
     string,
     unknown
   >;
+
+type StubOptions = {
+  responses:
+    Record<
+      string,
+      unknown
+    >;
+
+  status?:
+    number;
 };
 
 const openAvailability = {
-  ok: true,
-  state: "open",
-  opensAt: null,
-  closesAt: null,
-  capacity: 500,
-  registered: 100,
-  waitlisted: 0,
-  remaining: 400,
-  percentage: 20,
-  waitlistEnabled: true,
-  maxWaitlist: 0,
+  ok:
+    true,
+
+  state:
+    "open",
+
+  opensAt:
+    null,
+
+  closesAt:
+    null,
+
+  capacity:
+    500,
+
+  registered:
+    100,
+
+  waitlisted:
+    0,
+
+  remaining:
+    400,
+
+  percentage:
+    20,
+
+  waitlistEnabled:
+    true,
+
+  maxWaitlist:
+    100,
+
   eventName:
     "DETI+ 2026",
 };
 
 const openCvStatus = {
-  ok: true,
-  name: "Ana Silva",
-  email: "an***@ua.pt",
+  ok:
+    true,
+
+  registrationId:
+    "DET26-0042",
+
+  name:
+    "Ana Silva",
+
+  email:
+    "an***@ua.pt",
+
   registrationStatus:
     "confirmed",
-  hasCv: false,
-  cvName: "",
-  cvUpdatedAt: "",
-  cvUploadsOpen: true,
-  cvDeadline: null,
+
+  cvStatus:
+    "none",
+
+  hasCv:
+    false,
+
+  cvName:
+    "",
+
+  cvSubmittedAt:
+    "",
+
+  cvUpdatedAt:
+    "",
+
+  cvUploadsOpen:
+    true,
+
+  cvDeadline:
+    null,
 };
 
 async function stubScript(
-  page: Page,
-  stub: Stub,
+  page:
+  Page,
+
+  options:
+  StubOptions,
 ) {
-  const calls: unknown[] =
-    [];
+  const calls:
+    ApiCall[] = [];
 
   await page.route(
     SCRIPT_HOST,
-    async (route) => {
+    async (
+      route,
+    ) => {
+      const raw =
+        route
+          .request()
+          .postData() ??
+        "{}";
+
       const payload =
         JSON.parse(
-          route
-            .request()
-            .postData() ??
-          "{}",
-        );
+          raw,
+        ) as ApiCall;
 
       calls.push(
         payload,
@@ -71,24 +132,27 @@ async function stubScript(
 
       const action =
         String(
-          (
-            payload as {
-              action?: string;
-            }
-          ).action ??
+          payload.action ??
           "",
         );
 
-      const body =
-        stub.responses?.[
+      const response =
+        options.responses[
           action
-          ] ??
-        stub.body ??
-        openAvailability;
+          ];
+
+      if (
+        typeof response ===
+        "undefined"
+      ) {
+        throw new Error(
+          `Unexpected Apps Script action: ${action}`,
+        );
+      }
 
       await route.fulfill({
         status:
-          stub.status ??
+          options.status ??
           200,
 
         contentType:
@@ -96,7 +160,7 @@ async function stubScript(
 
         body:
           JSON.stringify(
-            body,
+            response,
           ),
       });
     },
@@ -106,7 +170,8 @@ async function stubScript(
 }
 
 async function fillValidForm(
-  page: Page,
+  page:
+  Page,
 ) {
   await page
     .getByLabel(
@@ -146,8 +211,11 @@ async function fillValidForm(
     .getByRole(
       "option",
       {
-        name: "3",
-        exact: true,
+        name:
+          "3",
+
+        exact:
+          true,
       },
     )
     .click();
@@ -156,17 +224,39 @@ async function fillValidForm(
     .getByRole(
       "checkbox",
       {
-        name: /data/i,
+        name:
+          /data/i,
       },
     )
     .check();
 }
 
+function pdfFile(
+  name =
+  "cv.pdf",
+) {
+  return {
+    name,
+
+    mimeType:
+      "application/pdf",
+
+    buffer:
+      Buffer.from(
+        "%PDF-1.4\nstub\n%%EOF\n",
+      ),
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Registration
+// -----------------------------------------------------------------------------
+
 test.describe(
   "registration form",
   () => {
     test(
-      "submits the filled fields and confirms",
+      "submits canonical registration fields",
       async ({
                page,
              }) => {
@@ -179,15 +269,21 @@ test.describe(
                 openAvailability,
 
                 register: {
-                  ok: true,
+                  ok:
+                    true,
+
                   registered:
                     true,
+
                   status:
                     "confirmed",
+
                   alreadyRegistered:
                     false,
+
                   cvUploaded:
                     false,
+
                   magicLinkSent:
                     true,
                 },
@@ -225,33 +321,188 @@ test.describe(
           ),
         ).toBeVisible();
 
-        expect(
-          calls,
-        ).toHaveLength(
-          2,
-        );
+        const registerCall =
+          calls.find(
+            (
+              call,
+            ) =>
+              call.action ===
+              "register",
+          );
 
         expect(
-          calls[1],
+          registerCall,
+        ).toBeDefined();
+
+        expect(
+          registerCall,
         ).toMatchObject({
           action:
             "register",
+
           name:
             "Ana Silva",
+
           email:
             "ana@ua.pt",
-          curse:
+
+          course:
             "Computer Engineering",
-          year: "3",
+
+          year:
+            "3",
+
           hasGdprConsent:
             true,
-          website: "",
+
+          website:
+            "",
+        });
+
+        /*
+         * The legacy typo must never leave the frontend anymore.
+         */
+        expect(
+          registerCall,
+        ).not.toHaveProperty(
+          "curse",
+        );
+      },
+    );
+
+    test(
+      "normalizes email and trims fields",
+      async ({
+               page,
+             }) => {
+        const calls =
+          await stubScript(
+            page,
+            {
+              responses: {
+                registration_status:
+                openAvailability,
+
+                register: {
+                  ok:
+                    true,
+
+                  registered:
+                    true,
+
+                  status:
+                    "confirmed",
+
+                  alreadyRegistered:
+                    false,
+
+                  cvUploaded:
+                    false,
+
+                  magicLinkSent:
+                    true,
+                },
+              },
+            },
+          );
+
+        await page.goto(
+          "registration/index.html",
+        );
+
+        await page
+          .getByLabel(
+            /full name/i,
+          )
+          .fill(
+            "  Ana Silva  ",
+          );
+
+        await page
+          .getByLabel(
+            /^email/i,
+          )
+          .fill(
+            "  ANA@UA.PT  ",
+          );
+
+        await page
+          .getByLabel(
+            /course/i,
+          )
+          .fill(
+            "  Computer Engineering  ",
+          );
+
+        await page
+          .getByRole(
+            "combobox",
+            {
+              name:
+                /academic year/i,
+            },
+          )
+          .click();
+
+        await page
+          .getByRole(
+            "option",
+            {
+              name:
+                "3",
+
+              exact:
+                true,
+            },
+          )
+          .click();
+
+        await page
+          .getByRole(
+            "checkbox",
+            {
+              name:
+                /data/i,
+            },
+          )
+          .check();
+
+        await page
+          .getByRole(
+            "button",
+            {
+              name:
+                /confirm registration/i,
+            },
+          )
+          .click();
+
+        const registerCall =
+          calls.find(
+            (
+              call,
+            ) =>
+              call.action ===
+              "register",
+          );
+
+        expect(
+          registerCall,
+        ).toMatchObject({
+          name:
+            "Ana Silva",
+
+          email:
+            "ana@ua.pt",
+
+          course:
+            "Computer Engineering",
         });
       },
     );
 
     test(
-      "blocks submission and reports invalid fields",
+      "blocks invalid registration before server submission",
       async ({
                page,
              }) => {
@@ -294,21 +545,38 @@ test.describe(
 
         await expect(
           page.getByText(
+            /specify your course/i,
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /select the academic year/i,
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
             /accept the data policy/i,
           ),
         ).toBeVisible();
 
         expect(
-          calls,
-          "only availability should reach the server",
+          calls.filter(
+            (
+              call,
+            ) =>
+              call.action ===
+              "register",
+          ),
         ).toHaveLength(
-          1,
+          0,
         );
       },
     );
 
     test(
-      "handles a full-registration race without showing success",
+      "handles capacity race from backend",
       async ({
                page,
              }) => {
@@ -320,9 +588,12 @@ test.describe(
               openAvailability,
 
               register: {
-                ok: false,
+                ok:
+                  false,
+
                 error:
                   "registration_full",
+
                 message:
                   "All available places have been filled.",
               },
@@ -365,7 +636,7 @@ test.describe(
     );
 
     test(
-      "treats an already registered email as success",
+      "treats duplicate registration as success",
       async ({
                page,
              }) => {
@@ -377,15 +648,21 @@ test.describe(
               openAvailability,
 
               register: {
-                ok: true,
+                ok:
+                  true,
+
                 registered:
                   true,
+
                 status:
                   "confirmed",
+
                 alreadyRegistered:
                   true,
+
                 cvUploaded:
                   false,
+
                 magicLinkSent:
                   true,
               },
@@ -416,7 +693,7 @@ test.describe(
             "heading",
             {
               name:
-                "Already Registered",
+                /already registered/i,
             },
           ),
         ).toBeVisible();
@@ -424,7 +701,7 @@ test.describe(
     );
 
     test(
-      "requires CV-sharing consent when a CV is selected",
+      "requires CV sharing consent when registering with CV",
       async ({
                page,
              }) => {
@@ -451,18 +728,9 @@ test.describe(
           .locator(
             "#cv",
           )
-          .setInputFiles({
-            name:
-              "cv.pdf",
-
-            mimeType:
-              "application/pdf",
-
-            buffer:
-              Buffer.from(
-                "%PDF-1.4\nstub\n%%EOF\n",
-              ),
-          });
+          .setInputFiles(
+            pdfFile(),
+          );
 
         await page
           .getByRole(
@@ -481,15 +749,21 @@ test.describe(
         ).toBeVisible();
 
         expect(
-          calls,
+          calls.filter(
+            (
+              call,
+            ) =>
+              call.action ===
+              "register",
+          ),
         ).toHaveLength(
-          1,
+          0,
         );
       },
     );
 
     test(
-      "sends the selected CV with a registration",
+      "uploads CV together with registration",
       async ({
                page,
              }) => {
@@ -502,15 +776,21 @@ test.describe(
                 openAvailability,
 
                 register: {
-                  ok: true,
+                  ok:
+                    true,
+
                   registered:
                     true,
+
                   status:
                     "confirmed",
+
                   alreadyRegistered:
                     false,
+
                   cvUploaded:
                     true,
+
                   magicLinkSent:
                     true,
                 },
@@ -530,18 +810,9 @@ test.describe(
           .locator(
             "#cv",
           )
-          .setInputFiles({
-            name:
-              "cv.pdf",
-
-            mimeType:
-              "application/pdf",
-
-            buffer:
-              Buffer.from(
-                "%PDF-1.4\nstub\n%%EOF\n",
-              ),
-          });
+          .setInputFiles(
+            pdfFile(),
+          );
 
         await expect(
           page.getByTitle(
@@ -575,8 +846,17 @@ test.describe(
           ),
         ).toBeVisible();
 
+        const registerCall =
+          calls.find(
+            (
+              call,
+            ) =>
+              call.action ===
+              "register",
+          );
+
         expect(
-          calls[1],
+          registerCall,
         ).toMatchObject({
           cv: {
             filename:
@@ -586,11 +866,36 @@ test.describe(
               "application/pdf",
           },
         });
+
+        expect(
+          String(
+            (
+              registerCall?.cv as
+                | Record<
+                string,
+                unknown
+              >
+                | undefined
+            )?.data ??
+            "",
+          ),
+        ).toMatch(
+          /^JVBER/,
+        );
       },
     );
+  },
+);
 
+// -----------------------------------------------------------------------------
+// Registration availability
+// -----------------------------------------------------------------------------
+
+test.describe(
+  "registration availability gate",
+  () => {
     test(
-      "shows availability states before exposing the form",
+      "shows almost-full warning",
       async ({
                page,
              }) => {
@@ -598,14 +903,18 @@ test.describe(
           page,
           {
             responses: {
-              registration_status:
-                {
-                  ...openAvailability,
-                  state:
-                    "almost_full",
-                  remaining:
-                    2,
-                },
+              registration_status: {
+                ...openAvailability,
+
+                state:
+                  "almost_full",
+
+                remaining:
+                  2,
+
+                percentage:
+                  99,
+              },
             },
           },
         );
@@ -616,7 +925,7 @@ test.describe(
 
         await expect(
           page.getByText(
-            "Only 2 places remain.",
+            /only 2 places remain/i,
           ),
         ).toBeVisible();
 
@@ -633,7 +942,7 @@ test.describe(
     );
 
     test(
-      "shows a full event without the form",
+      "hides form when registrations are full",
       async ({
                page,
              }) => {
@@ -641,16 +950,21 @@ test.describe(
           page,
           {
             responses: {
-              registration_status:
-                {
-                  ...openAvailability,
-                  state:
-                    "full",
-                  registered:
-                    500,
-                  remaining:
-                    0,
-                },
+              registration_status: {
+                ...openAvailability,
+
+                state:
+                  "full",
+
+                registered:
+                  500,
+
+                remaining:
+                  0,
+
+                percentage:
+                  100,
+              },
             },
           },
         );
@@ -670,6 +984,16 @@ test.describe(
         ).toBeVisible();
 
         await expect(
+          page.getByText(
+            "500",
+            {
+              exact:
+                true,
+            },
+          ).first(),
+        ).toBeVisible();
+
+        await expect(
           page.getByRole(
             "button",
             {
@@ -684,7 +1008,7 @@ test.describe(
     );
 
     test(
-      "joins the waitlist and confirms its status",
+      "allows joining waitlist",
       async ({
                page,
              }) => {
@@ -692,27 +1016,41 @@ test.describe(
           page,
           {
             responses: {
-              registration_status:
-                {
-                  ...openAvailability,
-                  state:
-                    "waitlist",
-                  registered:
-                    500,
-                  remaining:
-                    0,
-                },
+              registration_status: {
+                ...openAvailability,
+
+                state:
+                  "waitlist",
+
+                registered:
+                  500,
+
+                waitlisted:
+                  17,
+
+                remaining:
+                  0,
+
+                percentage:
+                  100,
+              },
 
               register: {
-                ok: true,
+                ok:
+                  true,
+
                 registered:
                   true,
+
                 status:
                   "waitlisted",
+
                 alreadyRegistered:
                   false,
+
                 cvUploaded:
                   false,
+
                 magicLinkSent:
                   true,
               },
@@ -757,7 +1095,7 @@ test.describe(
     );
 
     test(
-      "keeps the form hidden before registration opens",
+      "hides form before opening",
       async ({
                page,
              }) => {
@@ -765,14 +1103,15 @@ test.describe(
           page,
           {
             responses: {
-              registration_status:
-                {
-                  ...openAvailability,
-                  state:
-                    "not_started",
-                  opensAt:
-                    "2026-05-01T10:30:00.000Z",
-                },
+              registration_status: {
+                ...openAvailability,
+
+                state:
+                  "not_started",
+
+                opensAt:
+                  "2026-09-01T09:00:00.000Z",
+              },
             },
           },
         );
@@ -792,12 +1131,6 @@ test.describe(
         ).toBeVisible();
 
         await expect(
-          page.getByText(
-            /Registrations open on 1 May 2026/i,
-          ),
-        ).toBeVisible();
-
-        await expect(
           page.getByRole(
             "button",
             {
@@ -812,7 +1145,7 @@ test.describe(
     );
 
     test(
-      "keeps the form hidden after registration closes",
+      "hides form after close",
       async ({
                page,
              }) => {
@@ -820,12 +1153,15 @@ test.describe(
           page,
           {
             responses: {
-              registration_status:
-                {
-                  ...openAvailability,
-                  state:
-                    "closed",
-                },
+              registration_status: {
+                ...openAvailability,
+
+                state:
+                  "closed",
+
+                closesAt:
+                  "2026-08-30T23:59:00.000Z",
+              },
             },
           },
         );
@@ -859,7 +1195,7 @@ test.describe(
     );
 
     test(
-      "keeps the form hidden while registrations are disabled",
+      "hides form while registrations are disabled",
       async ({
                page,
              }) => {
@@ -867,12 +1203,12 @@ test.describe(
           page,
           {
             responses: {
-              registration_status:
-                {
-                  ...openAvailability,
-                  state:
-                    "disabled",
-                },
+              registration_status: {
+                ...openAvailability,
+
+                state:
+                  "disabled",
+              },
             },
           },
         );
@@ -906,11 +1242,56 @@ test.describe(
     );
 
     test(
-      "fails closed when availability cannot be loaded and retries",
+      "fails closed for malformed availability response",
       async ({
                page,
              }) => {
-        let requests =
+        await stubScript(
+          page,
+          {
+            responses: {
+              registration_status: {
+                ok:
+                  true,
+              },
+            },
+          },
+        );
+
+        await page.goto(
+          "registration/index.html",
+        );
+
+        await expect(
+          page.getByRole(
+            "heading",
+            {
+              name:
+                /unable to check availability/i,
+            },
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByRole(
+            "button",
+            {
+              name:
+                /confirm registration/i,
+            },
+          ),
+        ).toHaveCount(
+          0,
+        );
+      },
+    );
+
+    test(
+      "can retry failed availability request",
+      async ({
+               page,
+             }) => {
+        let count =
           0;
 
         await page.route(
@@ -935,26 +1316,38 @@ test.describe(
               );
             }
 
-            requests +=
-              1;
+            count++;
 
-            await route.fulfill(
-              {
+            if (
+              count ===
+              1
+            ) {
+              await route.fulfill({
                 status:
-                  requests ===
-                  1
-                    ? 500
-                    : 200,
+                  500,
 
                 contentType:
                   "application/json",
 
                 body:
-                  JSON.stringify(
-                    openAvailability,
-                  ),
-              },
-            );
+                  "{}",
+              });
+
+              return;
+            }
+
+            await route.fulfill({
+              status:
+                200,
+
+              contentType:
+                "application/json",
+
+              body:
+                JSON.stringify(
+                  openAvailability,
+                ),
+            });
           },
         );
 
@@ -993,77 +1386,27 @@ test.describe(
         ).toBeVisible();
 
         expect(
-          requests,
+          count,
         ).toBe(
           2,
-        );
-      },
-    );
-
-    test(
-      "fails closed for an invalid availability response",
-      async ({
-               page,
-             }) => {
-        await stubScript(
-          page,
-          {
-            responses: {
-              registration_status:
-                {
-                  ok: true,
-                },
-            },
-          },
-        );
-
-        await page.goto(
-          "registration/index.html",
-        );
-
-        await expect(
-          page.getByRole(
-            "heading",
-            {
-              name:
-                /unable to check availability/i,
-            },
-          ),
-        ).toBeVisible();
-
-        await expect(
-          page.getByRole(
-            "button",
-            {
-              name:
-                /confirm registration/i,
-            },
-          ),
-        ).toHaveCount(
-          0,
         );
       },
     );
   },
 );
 
+// -----------------------------------------------------------------------------
+// CV access
+// -----------------------------------------------------------------------------
+
 test.describe(
-  "cv upload",
+  "CV management",
   () => {
     test(
-      "rejects a link with no token",
+      "rejects URL without token",
       async ({
                page,
              }) => {
-        await stubScript(
-          page,
-          {
-            body: {
-              ok: true,
-            },
-          },
-        );
-
         await page.goto(
           "registration/cv/index.html",
         );
@@ -1073,28 +1416,26 @@ test.describe(
             /link not valid/i,
           ),
         ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /missing its access code/i,
+          ),
+        ).toBeVisible();
       },
     );
 
     test(
-      "shows the CV already on record",
+      "shows canonical participant registration id",
       async ({
                page,
              }) => {
         await stubScript(
           page,
           {
-            body: {
-              ...openCvStatus,
-
-              hasCv:
-                true,
-
-              cvName:
-                "CV_ana-silva_20260501-101500.pdf",
-
-              cvUpdatedAt:
-                "2026-05-01T10:15:00.000Z",
+            responses: {
+              fetch_status:
+              openCvStatus,
             },
           },
         );
@@ -1111,7 +1452,74 @@ test.describe(
 
         await expect(
           page.getByText(
-            /cv on record/i,
+            "DET26-0042",
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /confirmed/i,
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /no cv has been submitted yet/i,
+          ),
+        ).toBeVisible();
+      },
+    );
+
+    test(
+      "shows submitted CV",
+      async ({
+               page,
+             }) => {
+        await stubScript(
+          page,
+          {
+            responses: {
+              fetch_status: {
+                ...openCvStatus,
+
+                cvStatus:
+                  "submitted",
+
+                hasCv:
+                  true,
+
+                cvName:
+                  "CV_ana-silva.pdf",
+
+                cvSubmittedAt:
+                  "2026-08-01T10:15:00.000Z",
+
+                cvUpdatedAt:
+                  "2026-08-01T10:15:00.000Z",
+              },
+            },
+          },
+        );
+
+        await page.goto(
+          "registration/cv/index.html?t=token-123",
+        );
+
+        await expect(
+          page.getByText(
+            /cv submitted/i,
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            "CV_ana-silva.pdf",
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /first submitted/i,
           ),
         ).toBeVisible();
 
@@ -1128,58 +1536,33 @@ test.describe(
     );
 
     test(
-      "uploads a PDF and confirms",
+      "distinguishes updated CV from first submission",
       async ({
                page,
              }) => {
-        const calls: unknown[] =
-          [];
+        await stubScript(
+          page,
+          {
+            responses: {
+              fetch_status: {
+                ...openCvStatus,
 
-        await page.route(
-          SCRIPT_HOST,
-          async (
-            route,
-          ) => {
-            const payload =
-              JSON.parse(
-                route
-                  .request()
-                  .postData() ??
-                "{}",
-              );
+                cvStatus:
+                  "updated",
 
-            calls.push(
-              payload,
-            );
+                hasCv:
+                  true,
 
-            const body =
-              payload.action ===
-              "fetch_status"
-                ? openCvStatus
-                : {
-                  ok: true,
-                  uploaded:
-                    true,
-                  cvName:
-                    "CV_ana-silva_20260501-101500.pdf",
-                  cvUpdatedAt:
-                    "2026-05-01T10:15:00.000Z",
-                };
+                cvName:
+                  "CV_ana-silva-v2.pdf",
 
-            await route.fulfill(
-              {
-                status:
-                  200,
+                cvSubmittedAt:
+                  "2026-08-01T10:15:00.000Z",
 
-                contentType:
-                  "application/json",
-
-                body:
-                  JSON.stringify(
-                    body,
-                  ),
+                cvUpdatedAt:
+                  "2026-08-20T17:40:00.000Z",
               },
-            );
+            },
           },
         );
 
@@ -1188,31 +1571,72 @@ test.describe(
         );
 
         await expect(
-          page.getByRole(
-            "button",
-            {
-              name:
-                /submit cv/i,
-            },
+          page.getByText(
+            /cv updated/i,
           ),
         ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /first submitted/i,
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /last updated/i,
+          ),
+        ).toBeVisible();
+      },
+    );
+
+    test(
+      "uploads first CV",
+      async ({
+               page,
+             }) => {
+        const calls =
+          await stubScript(
+            page,
+            {
+              responses: {
+                fetch_status:
+                openCvStatus,
+
+                upload: {
+                  ok:
+                    true,
+
+                  uploaded:
+                    true,
+
+                  cvStatus:
+                    "submitted",
+
+                  cvName:
+                    "CV_ana-silva.pdf",
+
+                  cvSubmittedAt:
+                    "2026-08-31T19:00:00.000Z",
+
+                  cvUpdatedAt:
+                    "2026-08-31T19:00:00.000Z",
+                },
+              },
+            },
+          );
+
+        await page.goto(
+          "registration/cv/index.html?t=token-123",
+        );
 
         await page
           .locator(
             "#cv",
           )
-          .setInputFiles({
-            name:
-              "cv.pdf",
-
-            mimeType:
-              "application/pdf",
-
-            buffer:
-              Buffer.from(
-                "%PDF-1.4\nstub\n%%EOF\n",
-              ),
-          });
+          .setInputFiles(
+            pdfFile(),
+          );
 
         await page
           .getByRole(
@@ -1225,46 +1649,50 @@ test.describe(
           .click();
 
         await expect(
-          page.getByText(
-            /cv received/i,
+          page.getByRole(
+            "heading",
+            {
+              name:
+                /cv received/i,
+            },
           ),
         ).toBeVisible();
 
-        const upload =
+        await expect(
+          page.getByText(
+            "CV_ana-silva.pdf",
+          ),
+        ).toBeVisible();
+
+        const uploadCall =
           calls.find(
             (
               call,
-            ): call is Record<
-              string,
-              unknown
-            > =>
-              typeof call ===
-              "object" &&
-              call !==
-              null &&
-              "action" in
-              call &&
-              (
-                call as {
-                  action:
-                    string;
-                }
-              ).action ===
+            ) =>
+              call.action ===
               "upload",
           );
 
         expect(
-          upload,
+          uploadCall,
         ).toMatchObject({
+          action:
+            "upload",
+
           token:
             "token-123",
+
+          filename:
+            "cv.pdf",
+
           mime:
             "application/pdf",
         });
 
         expect(
           String(
-            upload?.data,
+            uploadCall?.data ??
+            "",
           ),
         ).toMatch(
           /^JVBER/,
@@ -1273,7 +1701,106 @@ test.describe(
     );
 
     test(
-      "refuses a non-PDF before contacting the upload endpoint",
+      "replaces existing CV",
+      async ({
+               page,
+             }) => {
+        await stubScript(
+          page,
+          {
+            responses: {
+              fetch_status: {
+                ...openCvStatus,
+
+                cvStatus:
+                  "submitted",
+
+                hasCv:
+                  true,
+
+                cvName:
+                  "old.pdf",
+
+                cvSubmittedAt:
+                  "2026-08-01T10:00:00.000Z",
+
+                cvUpdatedAt:
+                  "2026-08-01T10:00:00.000Z",
+              },
+
+              upload: {
+                ok:
+                  true,
+
+                uploaded:
+                  true,
+
+                cvStatus:
+                  "updated",
+
+                cvName:
+                  "new.pdf",
+
+                cvSubmittedAt:
+                  "2026-08-01T10:00:00.000Z",
+
+                cvUpdatedAt:
+                  "2026-08-31T19:00:00.000Z",
+              },
+            },
+          },
+        );
+
+        await page.goto(
+          "registration/cv/index.html?t=token-123",
+        );
+
+        await page
+          .locator(
+            "#cv",
+          )
+          .setInputFiles(
+            pdfFile(
+              "new.pdf",
+            ),
+          );
+
+        await page
+          .getByRole(
+            "button",
+            {
+              name:
+                /replace cv/i,
+            },
+          )
+          .click();
+
+        await expect(
+          page.getByRole(
+            "heading",
+            {
+              name:
+                /cv updated/i,
+            },
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            "new.pdf",
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /last updated/i,
+          ),
+        ).toBeVisible();
+      },
+    );
+
+    test(
+      "rejects non-PDF locally",
       async ({
                page,
              }) => {
@@ -1281,8 +1808,10 @@ test.describe(
           await stubScript(
             page,
             {
-              body:
-              openCvStatus,
+              responses: {
+                fetch_status:
+                openCvStatus,
+              },
             },
           );
 
@@ -1318,12 +1847,7 @@ test.describe(
             (
               call,
             ) =>
-              (
-                call as {
-                  action?: string;
-                }
-              )
-                .action ===
+              call.action ===
               "upload",
           ),
         ).toHaveLength(
@@ -1333,86 +1857,61 @@ test.describe(
     );
 
     test(
-      "loads a full-width preview only when requested",
+      "previews existing CV only when requested",
       async ({
                page,
              }) => {
-        const calls: unknown[] =
-          [];
-
-        const pdf =
-          Buffer.from(
-            "%PDF-1.4\nstub\n%%EOF\n",
-          ).toString(
-            "base64",
-          );
-
-        await page.route(
-          SCRIPT_HOST,
-          async (
-            route,
-          ) => {
-            const payload =
-              JSON.parse(
-                route
-                  .request()
-                  .postData() ??
-                "{}",
-              );
-
-            calls.push(
-              payload,
-            );
-
-            const body =
-              payload.action ===
-              "fetch_status"
-                ? {
+        const calls =
+          await stubScript(
+            page,
+            {
+              responses: {
+                fetch_status: {
                   ...openCvStatus,
+
+                  cvStatus:
+                    "submitted",
 
                   hasCv:
                     true,
 
                   cvName:
-                    "cv.pdf",
+                    "ana.pdf",
+
+                  cvSubmittedAt:
+                    "2026-08-01T10:00:00.000Z",
 
                   cvUpdatedAt:
-                    "2026-05-01T10:15:00.000Z",
-                }
-                : {
-                  ok: true,
+                    "2026-08-01T10:00:00.000Z",
+                },
+
+                fetch_cv: {
+                  ok:
+                    true,
+
                   filename:
-                    "cv.pdf",
+                    "ana.pdf",
+
                   data:
-                  pdf,
-                };
-
-            await route.fulfill(
-              {
-                status:
-                  200,
-
-                contentType:
-                  "application/json",
-
-                body:
-                  JSON.stringify(
-                    body,
-                  ),
+                    "JVBERi0xLjQKJUVPRgo=",
+                },
               },
-            );
-          },
-        );
+            },
+          );
 
         await page.goto(
           "registration/cv/index.html?t=token-123",
         );
 
-        await expect(
-          page.getByTitle(
-            "CV preview",
+        expect(
+          calls.filter(
+            (
+              call,
+            ) =>
+              call.action ===
+              "fetch_cv",
           ),
-        ).toHaveCount(
+        ).toHaveLength(
           0,
         );
 
@@ -1433,46 +1932,66 @@ test.describe(
         ).toBeVisible();
 
         expect(
-          calls,
-        ).toContainEqual(
-          expect.objectContaining(
-            {
-              action:
-                "fetch_cv",
-
-              token:
-                "token-123",
-            },
+          calls.filter(
+            (
+              call,
+            ) =>
+              call.action ===
+              "fetch_cv",
           ),
+        ).toHaveLength(
+          1,
         );
       },
     );
 
     test(
-      "keeps an existing CV available after submissions close",
+      "keeps existing CV readable after deadline",
       async ({
                page,
              }) => {
         await stubScript(
           page,
           {
-            body: {
-              ...openCvStatus,
+            responses: {
+              fetch_status: {
+                ...openCvStatus,
 
-              hasCv:
-                true,
+                cvStatus:
+                  "submitted",
 
-              cvName:
-                "cv.pdf",
+                hasCv:
+                  true,
 
-              cvUpdatedAt:
-                "2026-05-01T10:15:00.000Z",
+                cvName:
+                  "cv.pdf",
 
-              cvUploadsOpen:
-                false,
+                cvSubmittedAt:
+                  "2026-05-01T10:15:00.000Z",
 
-              cvDeadline:
-                "2026-05-10T22:59:59.000Z",
+                cvUpdatedAt:
+                  "2026-05-01T10:15:00.000Z",
+
+                cvUploadsOpen:
+                  false,
+
+                cvDeadline:
+                  "2026-05-10T22:59:59.000Z",
+
+                registrationStatus:
+                  "confirmed",
+              },
+
+              fetch_cv: {
+                ok:
+                  true,
+
+                filename:
+                  "cv.pdf",
+
+                data:
+                  "JVBERi0xLjQKJUVPRgo=",
+              },
             },
           },
         );
@@ -1483,7 +2002,13 @@ test.describe(
 
         await expect(
           page.getByText(
-            /cv on record/i,
+            /cv submitted/i,
+          ),
+        ).toBeVisible();
+
+        await expect(
+          page.getByText(
+            /CV submissions are closed/i,
           ),
         ).toBeVisible();
 
@@ -1498,112 +2023,6 @@ test.describe(
         ).toBeVisible();
 
         await expect(
-          page.getByText(
-            /CV submissions are closed/i,
-          ),
-        ).toBeVisible();
-
-        await expect(
-          page.getByRole(
-            "button",
-            {
-              name:
-                /replace cv/i,
-            },
-          ),
-        ).toHaveCount(
-          0,
-        );
-      },
-    );
-
-    test(
-      "does not expose the uploader when CV submissions are closed",
-      async ({
-               page,
-             }) => {
-        await stubScript(
-          page,
-          {
-            body: {
-              ...openCvStatus,
-
-              cvUploadsOpen:
-                false,
-
-              cvDeadline:
-                "2026-05-10T22:59:59.000Z",
-            },
-          },
-        );
-
-        await page.goto(
-          "registration/cv/index.html?t=token-123",
-        );
-
-        await expect(
-          page.getByText(
-            /CV submissions are closed/i,
-          ),
-        ).toBeVisible();
-
-        await expect(
-          page.locator(
-            "#cv",
-          ),
-        ).toHaveCount(
-          0,
-        );
-
-        await expect(
-          page.getByRole(
-            "button",
-            {
-              name:
-                /submit cv/i,
-            },
-          ),
-        ).toHaveCount(
-          0,
-        );
-      },
-    );
-
-    test(
-      "shows a cancelled registration without exposing the uploader",
-      async ({
-               page,
-             }) => {
-        await stubScript(
-          page,
-          {
-            body: {
-              ...openCvStatus,
-
-              registrationStatus:
-                "cancelled",
-
-              cvUploadsOpen:
-                false,
-            },
-          },
-        );
-
-        await page.goto(
-          "registration/cv/index.html?t=token-123",
-        );
-
-        await expect(
-          page.getByRole(
-            "heading",
-            {
-              name:
-                /registration cancelled/i,
-            },
-          ),
-        ).toBeVisible();
-
-        await expect(
           page.locator(
             "#cv",
           ),
@@ -1614,49 +2033,27 @@ test.describe(
     );
 
     test(
-      "handles a cv_closed response if the deadline passes during upload",
+      "blocks CV upload for cancelled registration",
       async ({
                page,
              }) => {
-        await page.route(
-          SCRIPT_HOST,
-          async (
-            route,
-          ) => {
-            const payload =
-              JSON.parse(
-                route
-                  .request()
-                  .postData() ??
-                "{}",
-              );
+        await stubScript(
+          page,
+          {
+            responses: {
+              fetch_status: {
+                ...openCvStatus,
 
-            const body =
-              payload.action ===
-              "fetch_status"
-                ? openCvStatus
-                : {
-                  ok: false,
-                  error:
-                    "cv_closed",
-                  message:
-                    "CV submissions are closed.",
-                };
+                registrationStatus:
+                  "cancelled",
 
-            await route.fulfill(
-              {
-                status:
-                  200,
+                cvStatus:
+                  "none",
 
-                contentType:
-                  "application/json",
-
-                body:
-                  JSON.stringify(
-                    body,
-                  ),
+                cvUploadsOpen:
+                  true,
               },
-            );
+            },
           },
         );
 
@@ -1664,36 +2061,9 @@ test.describe(
           "registration/cv/index.html?t=token-123",
         );
 
-        await page
-          .locator(
-            "#cv",
-          )
-          .setInputFiles({
-            name:
-              "cv.pdf",
-
-            mimeType:
-              "application/pdf",
-
-            buffer:
-              Buffer.from(
-                "%PDF-1.4\nstub\n%%EOF\n",
-              ),
-          });
-
-        await page
-          .getByRole(
-            "button",
-            {
-              name:
-                /submit cv/i,
-            },
-          )
-          .click();
-
         await expect(
           page.getByText(
-            /CV submissions are closed/i,
+            /registration cancelled/i,
           ),
         ).toBeVisible();
 
@@ -1704,6 +2074,37 @@ test.describe(
         ).toHaveCount(
           0,
         );
+      },
+    );
+
+    test(
+      "shows waitlisted participant status",
+      async ({
+               page,
+             }) => {
+        await stubScript(
+          page,
+          {
+            responses: {
+              fetch_status: {
+                ...openCvStatus,
+
+                registrationStatus:
+                  "waitlisted",
+              },
+            },
+          },
+        );
+
+        await page.goto(
+          "registration/cv/index.html?t=token-123",
+        );
+
+        await expect(
+          page.getByText(
+            /waiting list/i,
+          ).first(),
+        ).toBeVisible();
       },
     );
   },

@@ -61,14 +61,38 @@ function initializeOperations() {
     refreshControlCenter_();
   }
 
-  ensureAdminEditTrigger_();
-  ensureRegistrationEditTrigger_();
+  getEmailQueueSheet_();
+  installOperationalTriggers();
+  applyOperationalProtections();
 
   runHealthCheck();
 
   console.log(
     'DETI+ operations initialized.'
   );
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('DETI+ Operations')
+    .addItem('Initialize system', 'initializeOperations')
+    .addItem('Refresh dashboard', 'refreshControlCenter_')
+    .addItem('Run migration', 'migrateSystem')
+    .addItem('Run health check', 'runHealthCheck')
+    .addSeparator()
+    .addItem('Promote next waitlisted', 'promoteNextWaitlisted')
+    .addItem('Process email queue', 'processEmailQueue')
+    .addSeparator()
+    .addItem('Export all participants', 'exportParticipantsCsv')
+    .addItem('Export confirmed participants', 'exportConfirmedParticipantsCsv')
+    .addItem('Export waitlist', 'exportWaitlistCsv')
+    .addItem('Export check-in list', 'exportCheckInListCsv')
+    .addItem('Export CV index', 'exportCvIndexCsv')
+    .addSeparator()
+    .addItem('Apply protections', 'applyOperationalProtections')
+    .addItem('Install triggers', 'installOperationalTriggers')
+    .addItem('Run data retention', 'runDataRetention')
+    .addItem('Reset capacity notifications', 'resetCapacityNotifications')
+    .addToUi();
 }
 
 function initializeAdminSheet_() {
@@ -534,11 +558,8 @@ function handleRegistrationEdit_(e) {
         checkedInAt:
           now,
 
-        registrationStatus:
-          'checked_in',
-
         state:
-          'checked_in',
+          legacyStateFor_('confirmed', normalizedCvStatus_(record)),
       }
     );
 
@@ -548,23 +569,19 @@ function handleRegistrationEdit_(e) {
     record.checkedInAt =
       now;
 
-    record.registrationStatus =
-      'checked_in';
-
-    record.state =
-      'checked_in';
+    record.registrationStatus = 'confirmed';
+    record.state = legacyStateFor_('confirmed', normalizedCvStatus_(record));
 
     logAudit_(
       'PARTICIPANT_CHECKED_IN',
       record,
       previousStatus,
-      'checked_in',
-      'Check-in checkbox enabled.',
+      'confirmed',
+      'Participant checked in.',
       getAdminActor_()
     );
   } else {
-    const nextStatus =
-      'confirmed';
+    const nextStatus = 'confirmed';
 
     setCells_(
       sheet,
@@ -603,7 +620,7 @@ function handleRegistrationEdit_(e) {
       record,
       previousStatus,
       nextStatus,
-      'Check-in checkbox disabled.',
+      'Participant check-in reversed.',
       getAdminActor_()
     );
   }
@@ -1079,6 +1096,11 @@ function adminCancelRegistration_(
         getAdminActor_()
       );
 
+      if (previousStatus === 'confirmed') {
+        promoteNextWaitlistedUnlocked_(sheet, 'Place released by cancellation.');
+      }
+      checkCapacityNotifications_();
+
       return adminSuccess_(
         'Registration cancelled.'
       );
@@ -1124,25 +1146,10 @@ function adminRestoreRegistration_(
         );
       }
 
-      const availability =
-        getRegistrationState_();
-
-      const admission =
-        getRegistrationAdmission_(
-          availability
-        );
-
-      if (
-        !admission.allowed
-      ) {
-        return adminError_(
-          admission.message
-        );
-      }
-
-      const nextStatus =
-        admission
-          .registrationStatus;
+      const config = getEventConfig_();
+      const counts = getRegistrationCounts_();
+      const nextStatus = config.maxRegistrations === 0 || counts.registered < config.maxRegistrations ? 'confirmed' : (config.waitlistEnabled && (config.maxWaitlist === 0 || counts.waitlisted < config.maxWaitlist) ? 'waitlisted' : '');
+      if (!nextStatus) return adminError_('No confirmed place or waiting-list place is available.');
 
       const cvStatus =
         normalizedCvStatus_(
@@ -1157,6 +1164,12 @@ function adminRestoreRegistration_(
             nextStatus,
 
           cancelledAt:
+            '',
+
+          checkedIn:
+            false,
+
+          checkedInAt:
             '',
 
           state:
@@ -1174,6 +1187,8 @@ function adminRestoreRegistration_(
       found.record
         .cancelledAt =
         '';
+      found.record.checkedIn = false;
+      found.record.checkedInAt = '';
 
       found.record.state =
         legacyStateFor_(
@@ -1200,6 +1215,7 @@ function adminRestoreRegistration_(
         'Cancelled registration restored.',
         getAdminActor_()
       );
+      if (nextStatus === 'confirmed') checkCapacityNotifications_();
 
       return adminSuccess_(
         nextStatus ===
@@ -1363,10 +1379,7 @@ function adminCheckIn_(
         );
       }
 
-      if (
-        previousStatus ===
-        'checked_in'
-      ) {
+      if (isRecordCheckedIn_(found.record)) {
         return adminError_(
           'Participant is already checked in.'
         );
@@ -1379,23 +1392,17 @@ function adminCheckIn_(
         sheet,
         found.row,
         {
-          registrationStatus:
-            'checked_in',
-
           checkedIn:
             true,
 
           checkedInAt:
             now,
 
-          state:
-            'checked_in',
+          state: legacyStateFor_('confirmed', normalizedCvStatus_(found.record)),
         }
       );
 
-      found.record
-        .registrationStatus =
-        'checked_in';
+      found.record.registrationStatus = 'confirmed';
 
       found.record
         .checkedIn =
@@ -1409,8 +1416,8 @@ function adminCheckIn_(
         'PARTICIPANT_CHECKED_IN',
         found.record,
         previousStatus,
-        'checked_in',
-        'Participant checked in by administrator.',
+        'confirmed',
+        'Participant checked in.',
         getAdminActor_()
       );
 
@@ -1446,10 +1453,7 @@ function adminUndoCheckIn_(
           found.record
         );
 
-      if (
-        previousStatus !==
-        'checked_in'
-      ) {
+      if (!isRecordCheckedIn_(found.record)) {
         return adminError_(
           'Participant is not checked in.'
         );
@@ -1464,9 +1468,6 @@ function adminUndoCheckIn_(
         sheet,
         found.row,
         {
-          registrationStatus:
-            'confirmed',
-
           checkedIn:
             false,
 
@@ -1481,9 +1482,7 @@ function adminUndoCheckIn_(
         }
       );
 
-      found.record
-        .registrationStatus =
-        'confirmed';
+      found.record.registrationStatus = 'confirmed';
 
       found.record
         .checkedIn =
@@ -1496,9 +1495,9 @@ function adminUndoCheckIn_(
       logAudit_(
         'PARTICIPANT_CHECKIN_REVERSED',
         found.record,
-        'checked_in',
         'confirmed',
-        'Participant check-in reversed by administrator.',
+        'confirmed',
+        'Participant check-in reversed.',
         getAdminActor_()
       );
 
@@ -1535,6 +1534,8 @@ function adminDeleteParticipantData_(
 
       const record =
         found.record;
+
+      const wasConfirmed = normalizedRegistrationStatus_(record) === 'confirmed';
 
       const auditRecord = {
         registrationId:
@@ -1584,6 +1585,10 @@ function adminDeleteParticipantData_(
       sheet.deleteRow(
         found.row
       );
+
+      if (wasConfirmed) {
+        promoteNextWaitlistedUnlocked_(sheet, 'Place released by GDPR deletion.');
+      }
 
       return adminSuccess_(
         'Participant data deleted.'

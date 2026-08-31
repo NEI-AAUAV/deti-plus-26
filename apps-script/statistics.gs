@@ -230,10 +230,7 @@ function buildRegistrationStatistics_(
       } else {
         stats.confirmed++;
 
-        if (
-          status ===
-          'checked_in'
-        ) {
+        if (isRecordCheckedIn_(record)) {
           stats.checkedIn++;
         }
       }

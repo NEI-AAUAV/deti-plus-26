@@ -251,6 +251,16 @@ function getEventConfig_() {
   };
 }
 
+function validateEventConfig_() {
+  const config = getEventConfig_();
+  const issues = [];
+  if (!config.timezone) issues.push({ level: 'error', key: 'timezone', message: 'Timezone is required.' });
+  if (config.registrationOpensAt && config.registrationClosesAt && config.registrationOpensAt.getTime() > config.registrationClosesAt.getTime()) issues.push({ level: 'error', key: 'registrationOpensAt', message: 'Registration opening must be before closing.' });
+  if (config.maxRegistrations < 0) issues.push({ level: 'error', key: 'maxRegistrations', message: 'Capacity must be non-negative.' });
+  if (config.maxWaitlist < 0) issues.push({ level: 'error', key: 'maxWaitlist', message: 'Waitlist capacity must be non-negative.' });
+  return issues;
+}
+
 // -----------------------------------------------------------------------------
 // Registration state
 // -----------------------------------------------------------------------------
@@ -264,6 +274,10 @@ function getRegistrationState_() {
 
   const now =
     new Date();
+
+  if (validateEventConfig_().some(function(issue) { return issue.level === 'error'; })) {
+    return { state: 'closed', capacity: config.maxRegistrations, registered: counts.registered, waitlisted: counts.waitlisted, remaining: null, percentage: null, opensAt: config.registrationOpensAt, closesAt: config.registrationClosesAt, waitlistEnabled: config.waitlistEnabled, maxWaitlist: config.maxWaitlist };
+  }
 
   const capacity =
     config.maxRegistrations;
@@ -587,13 +601,7 @@ function getRegistrationCounts_() {
         return;
       }
 
-      /*
-       * checked_in still consumes a confirmed place.
-       */
-      if (
-        status ===
-        'checked_in'
-      ) {
+      if (isRecordCheckedIn_(record)) {
         checkedIn++;
       }
 

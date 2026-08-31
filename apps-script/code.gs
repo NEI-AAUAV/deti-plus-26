@@ -631,6 +631,12 @@ function handleStatus_(
     registrationStatus:
       registrationStatus,
 
+    checkedIn:
+      isRecordCheckedIn_(record),
+
+    checkedInAt:
+      toIsoStringOrEmpty_(record.checkedInAt),
+
     cvStatus:
       cvStatus,
 
@@ -1463,31 +1469,19 @@ function sendParticipantEmail_(
   intro,
   link
 ) {
-  GmailApp.sendEmail(
-    record.email,
-    subject,
-    textEmail_(
-      intro,
-      link
-    ),
-    {
-      name:
-        'DETI+',
-
-      replyTo:
-        prop_(
-          'EVENT_EMAIL'
-        ),
-
-      htmlBody:
-        htmlEmail_(
-          record.name,
-          badge,
-          intro,
-          link
-        ),
-    }
-  );
+  try {
+    queueParticipantEmail_({
+      recipient: record.email,
+      subject: subject,
+      textBody: textEmail_(intro, link),
+      htmlBody: htmlEmail_(record.name, badge, intro, link),
+      replyTo: prop_('EVENT_EMAIL'),
+      type: badge,
+      registrationId: record.registrationId || '',
+    });
+  } catch (err) {
+    console.warn('Could not queue participant email: ' + err);
+  }
 }
 
 function cvLink_(
@@ -1789,9 +1783,7 @@ function normalizedRegistrationStatus_(
     current ===
       'waitlisted' ||
     current ===
-      'cancelled' ||
-    current ===
-      'checked_in'
+      'cancelled'
   ) {
     return current;
   }
@@ -1827,7 +1819,7 @@ function normalizedRegistrationStatus_(
     legacy ===
     'checked_in'
   ) {
-    return 'checked_in';
+    return 'confirmed';
   }
 
   return 'confirmed';
@@ -1903,13 +1895,6 @@ function legacyStateFor_(
   }
 
   if (
-    registrationStatus ===
-    'checked_in'
-  ) {
-    return 'checked_in';
-  }
-
-  if (
     cvStatus ===
       'submitted' ||
     cvStatus ===
@@ -1919,6 +1904,10 @@ function legacyStateFor_(
   }
 
   return 'registered';
+}
+
+function isRecordCheckedIn_(record) {
+  return Boolean(record && (record.checkedIn === true || String(record.checkedIn || '').toLowerCase() === 'true' || record.registrationStatus === 'checked_in' || record.state === 'checked_in'));
 }
 
 /**

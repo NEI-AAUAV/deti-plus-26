@@ -1014,15 +1014,6 @@ function formatRegistrationStatuses_(
 
         fontColor =
           '#b91c1c';
-      } else if (
-        status ===
-        'checked_in'
-      ) {
-        background =
-          '#eff6ff';
-
-        fontColor =
-          '#1d4ed8';
       }
 
       backgrounds.push([

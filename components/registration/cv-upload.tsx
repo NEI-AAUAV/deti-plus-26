@@ -662,9 +662,7 @@ export function CvUpload({
     "waitlisted";
 
   const checkedIn =
-    status
-      .registrationStatus ===
-    "checked_in";
+    status.checkedIn;
 
   const uploadClosed =
     cancelled ||
