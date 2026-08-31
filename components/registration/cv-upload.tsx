@@ -5,12 +5,17 @@ import {
   CheckCircle2,
   Download,
   Eye,
+  FileCheck2,
   FileText,
   Loader2,
   Upload,
+  X,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import {
+  Button,
+} from "@/components/ui/button";
+
 import {
   fetchCv,
   fetchStatus,
@@ -31,66 +36,108 @@ import {
 
 type LoadState =
   | {
-  kind: "loading";
+  kind:
+    "loading";
 }
   | {
-  kind: "invalid";
-  message: string;
+  kind:
+    "invalid";
+
+  message:
+    string;
 }
   | {
-  kind: "ready";
-  status: StatusResult;
+  kind:
+    "ready";
+
+  status:
+    StatusResult;
 };
 
 type UploadState =
   | {
-  kind: "idle";
+  kind:
+    "idle";
 }
   | {
-  kind: "uploading";
+  kind:
+    "uploading";
 }
   | {
-  kind: "error";
-  message: string;
+  kind:
+    "error";
+
+  message:
+    string;
 }
   | {
-  kind: "done";
+  kind:
+    "done";
+
+  replaced:
+    boolean;
 };
 
 type DocumentState =
   | {
-  kind: "idle";
+  kind:
+    "idle";
 }
   | {
-  kind: "loading";
+  kind:
+    "loading";
 }
   | {
-  kind: "ready";
-  url: string;
-  filename: string;
+  kind:
+    "ready";
+
+  url:
+    string;
+
+  filename:
+    string;
 }
   | {
-  kind: "error";
-  message: string;
+  kind:
+    "error";
+
+  message:
+    string;
+};
+
+type CvUploadProps = {
+  token:
+    string;
 };
 
 export function CvUpload({
                            token,
-                         }: {
-  token: string;
-}) {
-  const [load, setLoad] =
+                         }: CvUploadProps) {
+  const [
+    load,
+    setLoad,
+  ] =
     React.useState<LoadState>({
-      kind: "loading",
+      kind:
+        "loading",
     });
 
-  const [upload, setUpload] =
+  const [
+    upload,
+    setUpload,
+  ] =
     React.useState<UploadState>({
-      kind: "idle",
+      kind:
+        "idle",
     });
 
-  const [file, setFile] =
-    React.useState<File | null>(
+  const [
+    file,
+    setFile,
+  ] =
+    React.useState<
+      File | null
+    >(
       null,
     );
 
@@ -98,80 +145,144 @@ export function CvUpload({
     dragging,
     setDragging,
   ] =
-    React.useState(false);
+    React.useState(
+      false,
+    );
 
   const [
     document,
     setDocument,
   ] =
     React.useState<DocumentState>({
-      kind: "idle",
+      kind:
+        "idle",
     });
 
   const inputRef =
-    React.useRef<HTMLInputElement>(
+    React.useRef<
+      HTMLInputElement
+    >(
       null,
     );
 
-  React.useEffect(() => {
-    let cancelled =
-      false;
+  React.useEffect(
+    () => {
+      let cancelled =
+        false;
 
-    if (!token) {
-      setLoad({
-        kind: "invalid",
-        message:
-          "This link is missing its access code.",
-      });
+      async function loadStatus() {
+        if (
+          !token
+        ) {
+          setLoad({
+            kind:
+              "invalid",
 
-      return;
-    }
+            message:
+              "This link is missing its access code.",
+          });
 
-    fetchStatus(
-      token,
-    ).then(
-      (result) => {
-        if (cancelled) {
           return;
         }
 
-        setLoad(
-          result.ok
-            ? {
-              kind:
-                "ready",
-              status:
-              result,
-            }
-            : {
-              kind:
-                "invalid",
-              message:
-              result.message,
-            },
-        );
-      },
-    );
+        const result =
+          await fetchStatus(
+            token,
+          );
 
-    return () => {
-      cancelled =
-        true;
-    };
-  }, [token]);
+        if (
+          cancelled
+        ) {
+          return;
+        }
+
+        if (
+          !result.ok
+        ) {
+          setLoad({
+            kind:
+              "invalid",
+
+            message:
+            result.message,
+          });
+
+          return;
+        }
+
+        setLoad({
+          kind:
+            "ready",
+
+          status:
+          result,
+        });
+      }
+
+      void loadStatus();
+
+      return () => {
+        cancelled =
+          true;
+      };
+    },
+    [
+      token,
+    ],
+  );
 
   React.useEffect(
-    () => () => {
-      if (
-        document.kind ===
-        "ready"
-      ) {
-        URL.revokeObjectURL(
-          document.url,
-        );
-      }
+    () => {
+      return () => {
+        if (
+          document.kind ===
+          "ready"
+        ) {
+          URL.revokeObjectURL(
+            document.url,
+          );
+        }
+      };
     },
-    [document],
+    [
+      document,
+    ],
   );
+
+  function clearSelectedFile() {
+    setFile(
+      null,
+    );
+
+    if (
+      inputRef.current
+    ) {
+      inputRef.current.value =
+        "";
+    }
+  }
+
+  function clearDocument() {
+    setDocument(
+      (
+        previous,
+      ) => {
+        if (
+          previous.kind ===
+          "ready"
+        ) {
+          URL.revokeObjectURL(
+            previous.url,
+          );
+        }
+
+        return {
+          kind:
+            "idle",
+        };
+      },
+    );
+  }
 
   async function loadDocument() {
     if (
@@ -182,7 +293,8 @@ export function CvUpload({
     }
 
     setDocument({
-      kind: "loading",
+      kind:
+        "loading",
     });
 
     const result =
@@ -190,9 +302,13 @@ export function CvUpload({
         token,
       );
 
-    if (!result.ok) {
+    if (
+      !result.ok
+    ) {
       setDocument({
-        kind: "error",
+        kind:
+          "error",
+
         message:
         result.message,
       });
@@ -226,7 +342,9 @@ export function CvUpload({
     const current =
       await loadDocument();
 
-    if (!current) {
+    if (
+      !current
+    ) {
       return;
     }
 
@@ -249,7 +367,9 @@ export function CvUpload({
     candidate:
       File | null,
   ) {
-    if (!candidate) {
+    if (
+      !candidate
+    ) {
       return;
     }
 
@@ -258,13 +378,15 @@ export function CvUpload({
         candidate,
       );
 
-    if (problem) {
-      setFile(
-        null,
-      );
+    if (
+      problem
+    ) {
+      clearSelectedFile();
 
       setUpload({
-        kind: "error",
+        kind:
+          "error",
+
         message:
         problem,
       });
@@ -277,13 +399,14 @@ export function CvUpload({
     );
 
     setUpload({
-      kind: "idle",
+      kind:
+        "idle",
     });
   }
 
   async function onSubmit(
     event:
-    React.FormEvent,
+    React.FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
 
@@ -297,12 +420,38 @@ export function CvUpload({
 
     if (
       load.kind !==
-      "ready" ||
-      !load.status
+      "ready"
+    ) {
+      return;
+    }
+
+    const previousStatus =
+      load.status;
+
+    if (
+      previousStatus
+        .registrationStatus ===
+      "cancelled"
+    ) {
+      setUpload({
+        kind:
+          "error",
+
+        message:
+          "This registration is cancelled.",
+      });
+
+      return;
+    }
+
+    if (
+      !previousStatus
         .cvUploadsOpen
     ) {
       setUpload({
-        kind: "error",
+        kind:
+          "error",
+
         message:
           "CV submissions are closed.",
       });
@@ -310,11 +459,16 @@ export function CvUpload({
       return;
     }
 
+    const replacing =
+      previousStatus.hasCv;
+
     setUpload({
-      kind: "uploading",
+      kind:
+        "uploading",
     });
 
-    let data: string;
+    let data:
+      string;
 
     try {
       data =
@@ -323,7 +477,9 @@ export function CvUpload({
         );
     } catch {
       setUpload({
-        kind: "error",
+        kind:
+          "error",
+
         message:
           "The file could not be read. Try again.",
       });
@@ -344,9 +500,12 @@ export function CvUpload({
         data,
       });
 
-    if (!result.ok) {
+    if (
+      !result.ok
+    ) {
       setUpload({
-        kind: "error",
+        kind:
+          "error",
 
         message:
           result.error ===
@@ -360,7 +519,9 @@ export function CvUpload({
         "cv_closed"
       ) {
         setLoad(
-          (previous) =>
+          (
+            previous,
+          ) =>
             previous.kind ===
             "ready"
               ? {
@@ -369,6 +530,7 @@ export function CvUpload({
 
                 status: {
                   ...previous.status,
+
                   cvUploadsOpen:
                     false,
                 },
@@ -380,40 +542,54 @@ export function CvUpload({
       return;
     }
 
+    clearSelectedFile();
+    clearDocument();
+
     setUpload({
-      kind: "done",
-    });
+      kind:
+        "done",
 
-    setFile(
-      null,
-    );
-
-    setDocument({
-      kind: "idle",
+      replaced:
+      replacing,
     });
 
     setLoad(
-      (previous) =>
-        previous.kind ===
-        "ready"
-          ? {
-            kind:
-              "ready",
+      (
+        previous,
+      ) => {
+        if (
+          previous.kind !==
+          "ready"
+        ) {
+          return previous;
+        }
 
-            status: {
-              ...previous.status,
+        return {
+          kind:
+            "ready",
 
-              hasCv:
-                true,
+          status: {
+            ...previous.status,
 
-              cvName:
-              result.cvName,
+            hasCv:
+              true,
 
-              cvUpdatedAt:
-              result.cvUpdatedAt,
-            },
-          }
-          : previous,
+            cvStatus:
+            result.cvStatus,
+
+            cvName:
+            result.cvName,
+
+            cvSubmittedAt:
+              result.cvSubmittedAt ||
+              previous.status
+                .cvSubmittedAt,
+
+            cvUpdatedAt:
+            result.cvUpdatedAt,
+          },
+        };
+      },
     );
   }
 
@@ -422,17 +598,17 @@ export function CvUpload({
     "loading"
   ) {
     return (
-      <p
-        className="flex items-center gap-2 text-muted-foreground"
+      <div
         role="status"
+        className="flex items-center gap-3 border border-border bg-card/40 p-6 text-sm text-muted-foreground"
       >
         <Loader2
-          className="h-4 w-4 animate-spin"
+          className="h-4 w-4 animate-spin text-accent"
           aria-hidden="true"
         />
 
-        Checking your link…
-      </p>
+        Checking your personal link…
+      </div>
     );
   }
 
@@ -443,22 +619,24 @@ export function CvUpload({
     return (
       <div
         role="alert"
-        className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/10 p-6"
+        className="space-y-3 border border-destructive/40 bg-destructive/10 p-6"
       >
-        <h2 className="text-lg font-semibold text-destructive">
-          Link not valid
-        </h2>
-
-        <p className="text-sm">
-          {load.message}
+        <p className="font-display text-xs uppercase tracking-[0.18em] text-destructive">
+          Access denied
         </p>
 
-        <p className="text-sm text-muted-foreground">
-          Open the most
-          recent link we
-          emailed you, or
-          contact the DETI+
-          team.
+        <h2 className="font-display text-2xl lowercase text-primary">
+          link not valid
+        </h2>
+
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          {
+            load.message
+          }
+        </p>
+
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Open the most recent link we emailed you or contact the DETI+ team.
         </p>
       </div>
     );
@@ -478,60 +656,96 @@ export function CvUpload({
       .registrationStatus ===
     "cancelled";
 
+  const waitlisted =
+    status
+      .registrationStatus ===
+    "waitlisted";
+
+  const checkedIn =
+    status
+      .registrationStatus ===
+    "checked_in";
+
   const uploadClosed =
     cancelled ||
     !status
       .cvUploadsOpen;
 
+  const existingCvLabel =
+    status.cvStatus ===
+    "updated"
+      ? "CV updated"
+      : "CV submitted";
+
   return (
     <div className="animate-enter-up space-y-6">
-      <div className="flex items-center justify-between gap-4 border border-border bg-background p-5">
-        <div>
-          <p className="font-display text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-            Registered
-            participant
-          </p>
-
-          <p className="mt-2 font-medium text-primary">
-            {status.name}
-          </p>
-
-          <p className="mt-1 text-sm text-muted-foreground">
-            {status.email}
-          </p>
-
-          {status.registrationStatus ===
-          "waitlisted" ? (
-            <p className="mt-2 text-xs uppercase tracking-widest text-accent">
-              Waiting list
-            </p>
-          ) : null}
-
-          {cancelled ? (
-            <p className="mt-2 text-xs uppercase tracking-widest text-destructive">
-              Registration
-              cancelled
-            </p>
-          ) : null}
-        </div>
+      <section className="relative overflow-hidden border border-border bg-card/30 p-5 sm:p-6">
+        <div
+          aria-hidden="true"
+          className="absolute left-[-1px] top-[-1px] h-5 w-5 border-l-2 border-t-2 border-accent"
+        />
 
         <div
           aria-hidden="true"
-          className="h-3 w-3 bg-accent"
+          className="absolute bottom-[-1px] right-[-1px] h-5 w-5 border-b-2 border-r-2 border-accent"
         />
-      </div>
+
+        <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
+          <div>
+            <p className="font-display text-[10px] uppercase tracking-[0.2em] text-accent">
+              Participant
+            </p>
+
+            <p className="mt-3 font-display text-2xl lowercase text-primary">
+              {
+                status.name
+              }
+            </p>
+
+            <p className="mt-1 text-sm text-muted-foreground">
+              {
+                status.email
+              }
+            </p>
+
+            {status.registrationId ? (
+              <p className="mt-3 font-mono text-xs uppercase tracking-[0.12em] text-muted-foreground">
+                {
+                  status.registrationId
+                }
+              </p>
+            ) : null}
+          </div>
+
+          <RegistrationBadge
+            cancelled={
+              cancelled
+            }
+            waitlisted={
+              waitlisted
+            }
+            checkedIn={
+              checkedIn
+            }
+          />
+        </div>
+      </section>
 
       {status.hasCv ? (
-        <div className="animate-enter-up space-y-4 border border-accent/25 bg-accent/[0.025] p-5">
-          <div className="flex items-start gap-3">
-            <CheckCircle2
-              className="mt-0.5 h-5 w-5 shrink-0 text-accent"
-              aria-hidden="true"
-            />
+        <section className="animate-enter-up space-y-5 border border-accent/25 bg-accent/[0.025] p-5 sm:p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center border border-accent/30 bg-accent/[0.04]">
+              <FileCheck2
+                className="h-5 w-5 text-accent"
+                aria-hidden="true"
+              />
+            </div>
 
-            <div className="min-w-0 flex-1 space-y-1">
-              <p className="font-display text-xs uppercase tracking-[0.16em] text-accent">
-                CV on record
+            <div className="min-w-0 flex-1">
+              <p className="font-display text-[10px] uppercase tracking-[0.18em] text-accent">
+                {
+                  existingCvLabel
+                }
               </p>
 
               <p className="mt-3 break-all font-medium text-primary">
@@ -540,22 +754,33 @@ export function CvUpload({
                 }
               </p>
 
-              {status.cvUpdatedAt ? (
-                <p className="text-sm text-muted-foreground">
-                  Submitted
-                  on{" "}
-                  {formatDate(
-                    status.cvUpdatedAt,
-                  )}
+              {status.cvSubmittedAt ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  First submitted{" "}
+                  <strong className="font-normal text-primary">
+                    {formatDateTime(
+                      status.cvSubmittedAt,
+                    )}
+                  </strong>
+                </p>
+              ) : null}
+
+              {status.cvUpdatedAt &&
+              status.cvUpdatedAt !==
+              status.cvSubmittedAt ? (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Last updated{" "}
+                  <strong className="font-normal text-primary">
+                    {formatDateTime(
+                      status.cvUpdatedAt,
+                    )}
+                  </strong>
                 </p>
               ) : null}
 
               {!uploadClosed ? (
-                <p className="text-sm text-muted-foreground">
-                  Uploading
-                  a new file
-                  replaces
-                  this one.
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                  You can replace this file before the CV submission deadline.
                 </p>
               ) : null}
             </div>
@@ -565,9 +790,9 @@ export function CvUpload({
             <Button
               type="button"
               variant="outline"
-              onClick={
-                loadDocument
-              }
+              onClick={() => {
+                void loadDocument();
+              }}
               disabled={
                 document.kind ===
                 "loading"
@@ -591,9 +816,9 @@ export function CvUpload({
             <Button
               type="button"
               variant="outline"
-              onClick={
-                downloadDocument
-              }
+              onClick={() => {
+                void downloadDocument();
+              }}
               disabled={
                 document.kind ===
                 "loading"
@@ -605,6 +830,23 @@ export function CvUpload({
 
               Download CV
             </Button>
+
+            {document.kind ===
+            "ready" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={
+                  clearDocument
+                }
+              >
+                <X
+                  aria-hidden="true"
+                />
+
+                Close preview
+              </Button>
+            ) : null}
           </div>
 
           {document.kind ===
@@ -629,8 +871,18 @@ export function CvUpload({
               className="h-[min(72vh,760px)] w-full border border-border bg-white"
             />
           ) : null}
-        </div>
-      ) : null}
+        </section>
+      ) : (
+        <section className="border border-border bg-card/20 p-5">
+          <p className="font-display text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+            CV status
+          </p>
+
+          <p className="mt-2 text-sm text-muted-foreground">
+            No CV has been submitted yet.
+          </p>
+        </section>
+      )}
 
       {uploadClosed ? (
         <ClosedPanel
@@ -661,11 +913,15 @@ export function CvUpload({
                 true,
               );
             }}
-            onDragLeave={() =>
+            onDragLeave={(
+              event,
+            ) => {
+              event.preventDefault();
+
               setDragging(
                 false,
-              )
-            }
+              );
+            }}
             onDrop={(
               event,
             ) => {
@@ -683,7 +939,7 @@ export function CvUpload({
               );
             }}
             className={[
-              "group relative border-2 border-dashed p-10 text-center transition-[border-color,background-color] duration-200",
+              "group relative border-2 border-dashed p-8 text-center transition-[border-color,background-color] duration-200 sm:p-10",
 
               dragging
                 ? "border-accent bg-accent/[0.05]"
@@ -692,7 +948,7 @@ export function CvUpload({
               " ",
             )}
           >
-            <div className="mx-auto flex h-14 w-14 items-center justify-center border border-border bg-card">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center border border-border bg-card transition-colors group-hover:border-accent/30">
               <Upload
                 className="h-6 w-6 text-accent"
                 aria-hidden="true"
@@ -700,14 +956,13 @@ export function CvUpload({
             </div>
 
             <p className="mt-6 font-display text-lg lowercase text-primary">
-              drop your CV
-              here
+              {status.hasCv
+                ? "replace your CV"
+                : "upload your CV"}
             </p>
 
             <p className="mt-2 text-sm text-muted-foreground">
-              or choose a
-              file from
-              your device
+              Drag a PDF here or choose one from your device.
             </p>
 
             <Button
@@ -723,12 +978,11 @@ export function CvUpload({
                 uploading
               }
             >
-              Choose file
+              Choose PDF
             </Button>
 
             <p className="mt-5 text-xs uppercase tracking-[0.15em] text-muted-foreground">
-              PDF only · up
-              to 5 MB
+              PDF only · up to 5 MB
             </p>
 
             <input
@@ -736,6 +990,7 @@ export function CvUpload({
                 inputRef
               }
               id="cv"
+              name="cv"
               type="file"
               accept={
                 ALLOWED_CV_MIME
@@ -766,7 +1021,7 @@ export function CvUpload({
                 />
 
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
+                  <p className="truncate text-sm font-medium text-primary">
                     {
                       file.name
                     }
@@ -780,18 +1035,35 @@ export function CvUpload({
                 </div>
               </div>
 
-              <span className="font-display text-[10px] uppercase tracking-widest text-accent">
-                Ready
-              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={
+                  clearSelectedFile
+                }
+                disabled={
+                  uploading
+                }
+              >
+                <X
+                  aria-hidden="true"
+                />
+
+                Remove
+              </Button>
             </div>
           ) : null}
 
-          <div aria-live="polite">
+          <div
+            aria-live="polite"
+            className="space-y-3"
+          >
             {upload.kind ===
             "error" ? (
               <p
                 role="alert"
-                className="text-sm text-destructive"
+                className="border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
               >
                 {
                   upload.message
@@ -802,22 +1074,30 @@ export function CvUpload({
             {upload.kind ===
             "done" ? (
               <div className="animate-enter-up border border-accent/30 bg-accent/[0.04] p-6">
-                <p className="font-display text-xs uppercase tracking-[0.2em] text-accent">
-                  Step 02
-                  complete
-                </p>
+                <div className="flex gap-3">
+                  <CheckCircle2
+                    className="mt-0.5 h-5 w-5 shrink-0 text-accent"
+                    aria-hidden="true"
+                  />
 
-                <h2 className="mt-2 font-display text-2xl lowercase text-primary">
-                  CV received
-                </h2>
+                  <div>
+                    <p className="font-display text-xs uppercase tracking-[0.2em] text-accent">
+                      Step 02 complete
+                    </p>
 
-                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                  Your CV is
-                  now linked
-                  to your
-                  DETI+
-                  registration.
-                </p>
+                    <h2 className="mt-2 font-display text-2xl lowercase text-primary">
+                      {upload.replaced
+                        ? "CV updated"
+                        : "CV received"}
+                    </h2>
+
+                    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                      {upload.replaced
+                        ? "Your new CV has replaced the previous version."
+                        : "Your CV is now linked to your DETI+ registration."}
+                    </p>
+                  </div>
+                </div>
               </div>
             ) : null}
           </div>
@@ -840,31 +1120,83 @@ export function CvUpload({
 
                 Uploading…
               </>
-            ) : status.hasCv ? (
-              <>
-                <span>
-                  Replace CV
-                </span>
-
-                <span>
-                  →
-                </span>
-              </>
             ) : (
               <>
                 <span>
-                  Submit CV
+                  {status.hasCv
+                    ? "Replace CV"
+                    : "Submit CV"}
                 </span>
 
-                <span>
+                <span className="transition-transform group-hover:translate-x-1">
                   →
                 </span>
               </>
             )}
           </Button>
+
+          {status.cvDeadline ? (
+            <p className="text-center text-xs text-muted-foreground">
+              CV submission deadline:{" "}
+              {formatDateTime(
+                status.cvDeadline,
+              )}
+            </p>
+          ) : null}
         </form>
       )}
     </div>
+  );
+}
+
+function RegistrationBadge({
+                             cancelled,
+                             waitlisted,
+                             checkedIn,
+                           }: {
+  cancelled:
+    boolean;
+
+  waitlisted:
+    boolean;
+
+  checkedIn:
+    boolean;
+}) {
+  if (
+    cancelled
+  ) {
+    return (
+      <span className="w-fit border border-destructive/30 bg-destructive/10 px-3 py-2 font-display text-[10px] uppercase tracking-[0.16em] text-destructive">
+        Cancelled
+      </span>
+    );
+  }
+
+  if (
+    waitlisted
+  ) {
+    return (
+      <span className="w-fit border border-accent/30 bg-accent/[0.04] px-3 py-2 font-display text-[10px] uppercase tracking-[0.16em] text-accent">
+        Waiting list
+      </span>
+    );
+  }
+
+  if (
+    checkedIn
+  ) {
+    return (
+      <span className="w-fit border border-accent/30 bg-accent/[0.04] px-3 py-2 font-display text-[10px] uppercase tracking-[0.16em] text-accent">
+        Checked in
+      </span>
+    );
+  }
+
+  return (
+    <span className="w-fit border border-border bg-background px-3 py-2 font-display text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+      Confirmed
+    </span>
   );
 }
 
@@ -873,11 +1205,14 @@ function ClosedPanel({
                        deadline,
                        hasCv,
                      }: {
-  cancelled: boolean;
+  cancelled:
+    boolean;
+
   deadline:
-    | string
-    | null;
-  hasCv: boolean;
+    string | null;
+
+  hasCv:
+    boolean;
 }) {
   return (
     <div className="border border-border bg-card/40 p-6">
@@ -912,34 +1247,9 @@ function ClosedPanel({
   );
 }
 
-function formatDate(
-  iso: string,
-): string {
-  const date =
-    new Date(
-      iso,
-    );
-
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    return "";
-  }
-
-  return date.toLocaleDateString(
-    "en-GB",
-    {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    },
-  );
-}
-
 function formatDateTime(
-  iso: string,
+  iso:
+  string,
 ): string {
   const date =
     new Date(
