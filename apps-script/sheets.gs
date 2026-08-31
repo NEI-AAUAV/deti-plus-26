@@ -8,7 +8,9 @@
 
 function getSpreadsheet_() {
   return SpreadsheetApp.openById(
-    prop_('SHEET_ID')
+    prop_(
+      'SHEET_ID'
+    )
   );
 }
 
@@ -31,38 +33,247 @@ function getSheet_() {
         SHEET_NAME
       );
 
-    sheet.appendRow(
-      HEADERS
-    );
+    sheet
+      .getRange(
+        1,
+        1,
+        1,
+        HEADERS.length
+      )
+      .setValues([
+        HEADERS,
+      ]);
 
-    sheet.setFrozenRows(1);
+    sheet.setFrozenRows(
+      1
+    );
   }
+
+  ensureRegistrationColumns_(
+    sheet
+  );
 
   return sheet;
 }
 
-function readRecords_(sheet) {
+/**
+ * Ensures every canonical header exists.
+ *
+ * Existing columns are NEVER reordered automatically.
+ * Missing ones are appended to the right.
+ */
+function ensureRegistrationColumns_(
+  sheet
+) {
+  if (
+    sheet.getLastRow() ===
+    0
+  ) {
+    sheet
+      .getRange(
+        1,
+        1,
+        1,
+        HEADERS.length
+      )
+      .setValues([
+        HEADERS,
+      ]);
+
+    return;
+  }
+
+  const map =
+    getHeaderMap_(
+      sheet
+    );
+
+  HEADERS.forEach(
+    function (
+      header
+    ) {
+      if (
+        map[
+          header
+        ]
+      ) {
+        return;
+      }
+
+      const column =
+        Math.max(
+          sheet.getLastColumn() +
+            1,
+          1
+        );
+
+      sheet
+        .getRange(
+          1,
+          column
+        )
+        .setValue(
+          header
+        );
+
+      map[
+        header
+      ] =
+        column;
+    }
+  );
+}
+
+/**
+ * Reads the physical header row.
+ *
+ * Returns:
+ *
+ * {
+ *   email: 5,
+ *   registrationStatus: 9,
+ *   ...
+ * }
+ *
+ * Column numbers are 1-based.
+ */
+function getHeaderMap_(
+  sheet
+) {
+  const lastColumn =
+    sheet.getLastColumn();
+
+  if (
+    lastColumn <
+    1
+  ) {
+    return {};
+  }
+
+  const headers =
+    sheet
+      .getRange(
+        1,
+        1,
+        1,
+        lastColumn
+      )
+      .getValues()[0];
+
+  const map = {};
+
+  headers.forEach(
+    function (
+      value,
+      index
+    ) {
+      const header =
+        String(
+          value ||
+          ''
+        ).trim();
+
+      if (
+        !header
+      ) {
+        return;
+      }
+
+      if (
+        map[
+          header
+        ]
+      ) {
+        /*
+         * Duplicate headers are unsafe.
+         *
+         * Keep the first one and report the problem.
+         */
+        console.warn(
+          'Duplicate Registration header: ' +
+          header
+        );
+
+        return;
+      }
+
+      map[
+        header
+      ] =
+        index + 1;
+    }
+  );
+
+  return map;
+}
+
+function readRecords_(
+  sheet
+) {
+  const lastRow =
+    sheet.getLastRow();
+
+  const lastColumn =
+    sheet.getLastColumn();
+
+  if (
+    lastRow <
+      2 ||
+    lastColumn <
+      1
+  ) {
+    return [];
+  }
+
   const values =
     sheet
-      .getDataRange()
+      .getRange(
+        1,
+        1,
+        lastRow,
+        lastColumn
+      )
       .getValues();
+
+  const headers =
+    values[0].map(
+      function (
+        value
+      ) {
+        return String(
+          value ||
+          ''
+        ).trim();
+      }
+    );
 
   const records = [];
 
   for (
     let i = 1;
-    i < values.length;
+    i <
+    values.length;
     i++
   ) {
     const record = {};
 
-    HEADERS.forEach(
+    headers.forEach(
       function (
         header,
         column
       ) {
-        record[header] =
-          values[i][column];
+        if (
+          !header
+        ) {
+          return;
+        }
+
+        record[
+          header
+        ] =
+          values[i][
+            column
+          ];
       }
     );
 
@@ -78,16 +289,78 @@ function readRecords_(sheet) {
   return records;
 }
 
+function appendRegistration_(
+  sheet,
+  record
+) {
+  ensureRegistrationColumns_(
+    sheet
+  );
+
+  const lastColumn =
+    sheet.getLastColumn();
+
+  const headers =
+    sheet
+      .getRange(
+        1,
+        1,
+        1,
+        lastColumn
+      )
+      .getValues()[0]
+      .map(
+        function (
+          value
+        ) {
+          return String(
+            value ||
+            ''
+          ).trim();
+        }
+      );
+
+  const row =
+    headers.map(
+      function (
+        header
+      ) {
+        if (
+          !header
+        ) {
+          return '';
+        }
+
+        const value =
+          record[
+            header
+          ];
+
+        return typeof value ===
+          'undefined'
+          ? ''
+          : value;
+      }
+    );
+
+  sheet.appendRow(
+    row
+  );
+}
+
 function findRowByToken_(
   sheet,
   token
 ) {
   const normalizedToken =
     String(
-      token || ''
+      token ||
+      ''
     ).trim();
 
-  if (!normalizedToken) {
+  if (
+    !normalizedToken
+  ) {
     return null;
   }
 
@@ -98,15 +371,18 @@ function findRowByToken_(
 
   for (
     let i = 0;
-    i < rows.length;
+    i <
+    rows.length;
     i++
   ) {
     if (
       String(
         rows[i]
           .record
-          .token
-      ) === normalizedToken
+          .token ||
+        ''
+      ) ===
+      normalizedToken
     ) {
       return rows[i];
     }
@@ -131,7 +407,8 @@ function findRowByEmail_(
 
   for (
     let i = 0;
-    i < rows.length;
+    i <
+    rows.length;
     i++
   ) {
     if (
@@ -149,33 +426,227 @@ function findRowByEmail_(
   return null;
 }
 
+/**
+ * Updates arbitrary fields without depending on physical column positions.
+ *
+ * Values are grouped into contiguous ranges wherever possible.
+ */
 function setCells_(
   sheet,
   row,
   updates
 ) {
-  Object.keys(
-    updates
-  ).forEach(
-    function (key) {
-      const column =
-        HEADERS.indexOf(
+  const map =
+    getHeaderMap_(
+      sheet
+    );
+
+  const entries =
+    Object.keys(
+      updates
+    )
+      .map(
+        function (
           key
-        ) + 1;
+        ) {
+          return {
+            key:
+              key,
+
+            column:
+              map[
+                key
+              ],
+
+            value:
+              updates[
+                key
+              ],
+          };
+        }
+      )
+      .filter(
+        function (
+          entry
+        ) {
+          if (
+            !entry.column
+          ) {
+            console.warn(
+              'Ignoring update for missing Registration column: ' +
+              entry.key
+            );
+
+            return false;
+          }
+
+          return true;
+        }
+      )
+      .sort(
+        function (
+          a,
+          b
+        ) {
+          return (
+            a.column -
+            b.column
+          );
+        }
+      );
+
+  if (
+    !entries.length
+  ) {
+    return;
+  }
+
+  /*
+   * Google Sheets RangeList does not support different values for every cell
+   * in one operation, so contiguous updates are grouped into setValues().
+   */
+  let group = [
+    entries[0],
+  ];
+
+  for (
+    let i = 1;
+    i <
+    entries.length;
+    i++
+  ) {
+    const current =
+      entries[i];
+
+    const previous =
+      group[
+        group.length -
+        1
+      ];
+
+    if (
+      current.column ===
+      previous.column +
+        1
+    ) {
+      group.push(
+        current
+      );
+    } else {
+      writeCellGroup_(
+        sheet,
+        row,
+        group
+      );
+
+      group = [
+        current,
+      ];
+    }
+  }
+
+  writeCellGroup_(
+    sheet,
+    row,
+    group
+  );
+}
+
+function writeCellGroup_(
+  sheet,
+  row,
+  group
+) {
+  if (
+    !group.length
+  ) {
+    return;
+  }
+
+  const firstColumn =
+    group[0]
+      .column;
+
+  sheet
+    .getRange(
+      row,
+      firstColumn,
+      1,
+      group.length
+    )
+    .setValues([
+      group.map(
+        function (
+          entry
+        ) {
+          return entry.value;
+        }
+      ),
+    ]);
+}
+
+// -----------------------------------------------------------------------------
+// Registration IDs
+// -----------------------------------------------------------------------------
+
+function createNextRegistrationId_(
+  sheet
+) {
+  const rows =
+    readRecords_(
+      sheet
+    );
+
+  let highest =
+    0;
+
+  rows.forEach(
+    function (
+      entry
+    ) {
+      const id =
+        String(
+          entry.record
+            .registrationId ||
+          ''
+        )
+          .trim()
+          .toUpperCase();
 
       if (
-        column > 0
+        id.indexOf(
+          REGISTRATION_ID_PREFIX
+        ) !== 0
       ) {
-        sheet
-          .getRange(
-            row,
-            column
-          )
-          .setValue(
-            updates[key]
-          );
+        return;
+      }
+
+      const suffix =
+        id.substring(
+          REGISTRATION_ID_PREFIX
+            .length
+        );
+
+      const number =
+        Number(
+          suffix
+        );
+
+      if (
+        Number.isFinite(
+          number
+        ) &&
+        number >
+          highest
+      ) {
+        highest =
+          number;
       }
     }
+  );
+
+  return formatRegistrationId_(
+    highest + 1
   );
 }
 
@@ -183,25 +654,31 @@ function setCells_(
 // Registration presentation
 // -----------------------------------------------------------------------------
 
-/**
- * Formats Registration without changing its data or schema.
- *
- * This function is deliberately non-destructive.
- */
 function formatRegistrationSheet_(
   sheet
 ) {
+  ensureRegistrationColumns_(
+    sheet
+  );
+
   const lastRow =
     sheet.getLastRow();
 
   const lastColumn =
-    Math.max(
-      sheet.getLastColumn(),
-      HEADERS.length
+    sheet.getLastColumn();
+
+  const map =
+    getHeaderMap_(
+      sheet
     );
 
-  sheet.setFrozenRows(1);
-  sheet.setHiddenGridlines(true);
+  sheet.setFrozenRows(
+    1
+  );
+
+  sheet.setHiddenGridlines(
+    true
+  );
 
   const header =
     sheet.getRange(
@@ -227,7 +704,9 @@ function formatRegistrationSheet_(
     .setHorizontalAlignment(
       'left'
     )
-    .setWrap(false);
+    .setWrap(
+      false
+    );
 
   sheet.setRowHeight(
     1,
@@ -235,42 +714,106 @@ function formatRegistrationSheet_(
   );
 
   const widths = {
-    timestamp: 155,
-    token: 280,
-    name: 210,
-    email: 230,
-    mobileNumber: 145,
-    curse: 230,
-    year: 100,
-    hasCvConsent: 130,
-    hasGdprConsent: 145,
-    cvFileId: 280,
-    cvName: 270,
-    cvUpdatedAt: 155,
-    state: 130,
+    registrationId:
+      130,
+
+    registeredAt:
+      155,
+
+    token:
+      280,
+
+    name:
+      210,
+
+    email:
+      230,
+
+    mobileNumber:
+      145,
+
+    course:
+      230,
+
+    year:
+      100,
+
+    registrationStatus:
+      155,
+
+    cvStatus:
+      120,
+
+    hasCvConsent:
+      130,
+
+    hasGdprConsent:
+      145,
+
+    cvFileId:
+      280,
+
+    cvName:
+      270,
+
+    cvSubmittedAt:
+      155,
+
+    cvUpdatedAt:
+      155,
+
+    checkedIn:
+      105,
+
+    checkedInAt:
+      155,
+
+    cancelledAt:
+      155,
+
+    notes:
+      320,
+
+    /*
+     * Legacy.
+     */
+    timestamp:
+      155,
+
+    curse:
+      230,
+
+    state:
+      130,
   };
 
-  HEADERS.forEach(
+  Object.keys(
+    widths
+  ).forEach(
     function (
-      headerName,
-      index
+      name
     ) {
-      const width =
-        widths[
-          headerName
+      const column =
+        map[
+          name
         ];
 
-      if (width) {
+      if (
+        column
+      ) {
         sheet.setColumnWidth(
-          index + 1,
-          width
+          column,
+          widths[
+            name
+          ]
         );
       }
     }
   );
 
   if (
-    lastRow >= 2
+    lastRow >=
+    2
   ) {
     const body =
       sheet.getRange(
@@ -284,50 +827,60 @@ function formatRegistrationSheet_(
       .setVerticalAlignment(
         'middle'
       )
-      .setWrap(false);
+      .setWrap(
+        false
+      );
 
-    const timestampColumn =
-      HEADERS.indexOf(
-        'timestamp'
-      ) + 1;
+    [
+      'registeredAt',
+      'cvSubmittedAt',
+      'cvUpdatedAt',
+      'checkedInAt',
+      'cancelledAt',
+      'timestamp',
+    ].forEach(
+      function (
+        headerName
+      ) {
+        const column =
+          map[
+            headerName
+          ];
 
-    const cvUpdatedColumn =
-      HEADERS.indexOf(
-        'cvUpdatedAt'
-      ) + 1;
+        if (
+          !column
+        ) {
+          return;
+        }
 
-    if (
-      timestampColumn > 0
-    ) {
-      sheet
-        .getRange(
-          2,
-          timestampColumn,
-          lastRow - 1,
-          1
-        )
-        .setNumberFormat(
-          'dd/mm/yyyy hh:mm'
-        );
-    }
+        sheet
+          .getRange(
+            2,
+            column,
+            lastRow - 1,
+            1
+          )
+          .setNumberFormat(
+            'dd/mm/yyyy hh:mm'
+          );
+      }
+    );
 
-    if (
-      cvUpdatedColumn > 0
-    ) {
-      sheet
-        .getRange(
-          2,
-          cvUpdatedColumn,
-          lastRow - 1,
-          1
-        )
-        .setNumberFormat(
-          'dd/mm/yyyy hh:mm'
-        );
-    }
-
-    formatRegistrationStates_(
+    ensureCheckedInCheckboxes_(
       sheet,
+      map,
+      lastRow
+    );
+
+    formatRegistrationStatuses_(
+      sheet,
+      map,
+      lastRow
+    );
+
+    formatCvStatuses_(
+      sheet,
+      map,
       lastRow
     );
   }
@@ -337,7 +890,8 @@ function formatRegistrationSheet_(
 
   if (
     !existingFilter &&
-    lastRow >= 1
+    lastRow >=
+      1
   ) {
     sheet
       .getRange(
@@ -352,27 +906,50 @@ function formatRegistrationSheet_(
       .createFilter();
   }
 
-  /*
-   * Technical identifiers are still present and untouched,
-   * but hidden by default to keep the operational sheet readable.
-   */
   hideRegistrationTechnicalColumns_(
-    sheet
+    sheet,
+    map
   );
 }
 
-function formatRegistrationStates_(
+function ensureCheckedInCheckboxes_(
   sheet,
+  map,
   lastRow
 ) {
-  const stateColumn =
-    HEADERS.indexOf(
-      'state'
-    ) + 1;
+  const column =
+    map.checkedIn;
 
   if (
-    stateColumn <= 0 ||
-    lastRow < 2
+    !column ||
+    lastRow <
+      2
+  ) {
+    return;
+  }
+
+  sheet
+    .getRange(
+      2,
+      column,
+      lastRow - 1,
+      1
+    )
+    .insertCheckboxes();
+}
+
+function formatRegistrationStatuses_(
+  sheet,
+  map,
+  lastRow
+) {
+  const column =
+    map.registrationStatus;
+
+  if (
+    !column ||
+    lastRow <
+      2
   ) {
     return;
   }
@@ -380,7 +957,7 @@ function formatRegistrationStates_(
   const range =
     sheet.getRange(
       2,
-      stateColumn,
+      column,
       lastRow - 1,
       1
     );
@@ -393,10 +970,13 @@ function formatRegistrationStates_(
   const fontWeights = [];
 
   values.forEach(
-    function (row) {
-      const state =
+    function (
+      row
+    ) {
+      const status =
         String(
-          row[0] || ''
+          row[0] ||
+          ''
         )
           .trim()
           .toLowerCase();
@@ -408,10 +988,8 @@ function formatRegistrationStates_(
         '#374151';
 
       if (
-        state ===
-          'registered' ||
-        state ===
-          'cv_delivered'
+        status ===
+        'confirmed'
       ) {
         background =
           '#ecfdf5';
@@ -419,7 +997,7 @@ function formatRegistrationStates_(
         fontColor =
           '#047857';
       } else if (
-        state ===
+        status ===
         'waitlisted'
       ) {
         background =
@@ -428,7 +1006,7 @@ function formatRegistrationStates_(
         fontColor =
           '#b45309';
       } else if (
-        state ===
+        status ===
         'cancelled'
       ) {
         background =
@@ -436,6 +1014,15 @@ function formatRegistrationStates_(
 
         fontColor =
           '#b91c1c';
+      } else if (
+        status ===
+        'checked_in'
+      ) {
+        background =
+          '#eff6ff';
+
+        fontColor =
+          '#1d4ed8';
       }
 
       backgrounds.push([
@@ -464,21 +1051,108 @@ function formatRegistrationStates_(
     );
 }
 
+function formatCvStatuses_(
+  sheet,
+  map,
+  lastRow
+) {
+  const column =
+    map.cvStatus;
+
+  if (
+    !column ||
+    lastRow <
+      2
+  ) {
+    return;
+  }
+
+  const range =
+    sheet.getRange(
+      2,
+      column,
+      lastRow - 1,
+      1
+    );
+
+  const values =
+    range.getValues();
+
+  const backgrounds = [];
+  const fontColors = [];
+
+  values.forEach(
+    function (
+      row
+    ) {
+      const status =
+        String(
+          row[0] ||
+          ''
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        status ===
+          'submitted' ||
+        status ===
+          'updated'
+      ) {
+        backgrounds.push([
+          '#ecfdf5',
+        ]);
+
+        fontColors.push([
+          '#047857',
+        ]);
+      } else {
+        backgrounds.push([
+          '#f3f4f6',
+        ]);
+
+        fontColors.push([
+          '#6b7280',
+        ]);
+      }
+    }
+  );
+
+  range
+    .setBackgrounds(
+      backgrounds
+    )
+    .setFontColors(
+      fontColors
+    );
+}
+
 function hideRegistrationTechnicalColumns_(
-  sheet
+  sheet,
+  map
 ) {
   [
     'token',
     'cvFileId',
+
+    /*
+     * Legacy columns should stay available during the migration, but there is
+     * no reason to show them operationally.
+     */
+    'timestamp',
+    'curse',
+    'state',
   ].forEach(
-    function (header) {
+    function (
+      header
+    ) {
       const column =
-        HEADERS.indexOf(
+        map[
           header
-        ) + 1;
+        ];
 
       if (
-        column > 0
+        column
       ) {
         sheet.hideColumns(
           column
@@ -517,8 +1191,6 @@ function getSettingsSheet_() {
 
 /**
  * Creates missing settings without overwriting existing values.
- *
- * This makes the initialization safe to run multiple times.
  */
 function ensureSettingsSheet_(
   sheet
@@ -527,7 +1199,8 @@ function ensureSettingsSheet_(
     sheet.getLastRow();
 
   if (
-    lastRow === 0
+    lastRow ===
+    0
   ) {
     sheet
       .getRange(
@@ -576,13 +1249,7 @@ function ensureSettingsSheet_(
 }
 
 /**
- * Reads the Settings sheet into:
- *
- * {
- *   registrationEnabled: true,
- *   maxRegistrations: 500,
- *   ...
- * }
+ * Reads the Settings sheet into an object.
  */
 function getSettingsMap_() {
   const sheet =
@@ -594,7 +1261,8 @@ function getSettingsMap_() {
   const settings = {};
 
   if (
-    lastRow < 2
+    lastRow <
+    2
   ) {
     return settings;
   }
@@ -610,17 +1278,22 @@ function getSettingsMap_() {
       .getValues();
 
   values.forEach(
-    function (row) {
+    function (
+      row
+    ) {
       const key =
         String(
-          row[0] || ''
+          row[0] ||
+          ''
         ).trim();
 
       if (!key) {
         return;
       }
 
-      settings[key] =
+      settings[
+        key
+      ] =
         row[1];
     }
   );
@@ -637,7 +1310,8 @@ function getExistingSettingKeys_(
     sheet.getLastRow();
 
   if (
-    lastRow < 2
+    lastRow <
+    2
   ) {
     return result;
   }
@@ -653,14 +1327,19 @@ function getExistingSettingKeys_(
       .getValues();
 
   values.forEach(
-    function (row) {
+    function (
+      row
+    ) {
       const key =
         String(
-          row[0] || ''
+          row[0] ||
+          ''
         ).trim();
 
       if (key) {
-        result[key] =
+        result[
+          key
+        ] =
           true;
       }
     }
@@ -669,17 +1348,19 @@ function getExistingSettingKeys_(
   return result;
 }
 
-/**
- * Clean operational presentation for Settings.
- */
 function formatSettingsSheet_(
   sheet
 ) {
   const lastRow =
     sheet.getLastRow();
 
-  sheet.setFrozenRows(1);
-  sheet.setHiddenGridlines(true);
+  sheet.setFrozenRows(
+    1
+  );
+
+  sheet.setHiddenGridlines(
+    true
+  );
 
   sheet.setColumnWidth(
     1,
@@ -727,7 +1408,8 @@ function formatSettingsSheet_(
   );
 
   if (
-    lastRow < 2
+    lastRow <
+    2
   ) {
     return;
   }
@@ -744,7 +1426,9 @@ function formatSettingsSheet_(
     .setVerticalAlignment(
       'middle'
     )
-    .setWrap(true);
+    .setWrap(
+      true
+    );
 
   sheet
     .getRange(
@@ -787,9 +1471,6 @@ function formatSettingsSheet_(
   );
 }
 
-/**
- * Adds validation appropriate to each setting.
- */
 function applySettingsValidation_(
   sheet
 ) {
@@ -797,7 +1478,8 @@ function applySettingsValidation_(
     sheet.getLastRow();
 
   if (
-    lastRow < 2
+    lastRow <
+    2
   ) {
     return;
   }
@@ -819,7 +1501,8 @@ function applySettingsValidation_(
     ) {
       const key =
         String(
-          row[0] || ''
+          row[0] ||
+          ''
         ).trim();
 
       const sheetRow =
@@ -906,7 +1589,8 @@ function findSettingDefinition_(
     if (
       SETTINGS_DEFINITIONS[
         i
-      ].key === key
+      ].key ===
+      key
     ) {
       return SETTINGS_DEFINITIONS[
         i

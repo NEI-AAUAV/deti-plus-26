@@ -5,19 +5,42 @@
 const SHEET_NAME =
   'Registration';
 
+/**
+ * Canonical schema.
+ *
+ * Legacy fields are intentionally kept at the end during the transition:
+ *
+ * - timestamp
+ * - curse
+ * - state
+ *
+ * They will be removed after every consumer has moved to the new schema.
+ */
 const HEADERS = [
-  'timestamp',
+  'registrationId',
+  'registeredAt',
   'token',
   'name',
   'email',
   'mobileNumber',
-  'curse',
+  'course',
   'year',
+  'registrationStatus',
+  'cvStatus',
   'hasCvConsent',
   'hasGdprConsent',
   'cvFileId',
   'cvName',
+  'cvSubmittedAt',
   'cvUpdatedAt',
+  'checkedIn',
+  'checkedInAt',
+  'cancelledAt',
+  'notes',
+
+  // Legacy compatibility
+  'timestamp',
+  'curse',
   'state',
 ];
 
@@ -143,6 +166,9 @@ function doGet() {
 function handleRegister_(
   body
 ) {
+  /*
+   * Honeypot.
+   */
   if (
     String(
       body.website ||
@@ -150,7 +176,8 @@ function handleRegister_(
     ).trim() !== ''
   ) {
     return ok_({
-      registered: true,
+      registered:
+        true,
     });
   }
 
@@ -226,6 +253,9 @@ function handleRegister_(
     );
   }
 
+  /*
+   * Capacity decisions MUST happen inside this lock.
+   */
   const lock =
     LockService.getScriptLock();
 
@@ -244,102 +274,12 @@ function handleRegister_(
       );
 
     if (existing) {
-      const existingState =
-        normalizedRecordState_(
-          existing.record
-        );
-
-      if (
-        existingState ===
-        'cancelled'
-      ) {
-        return fail_(
-          'registration_cancelled',
-          'This registration has been cancelled. Contact the DETI+ team if you need help.'
-        );
-      }
-
-      const registrationStatus =
-        registrationStatusFromRecord_(
-          existing.record
-        );
-
-      if (hasCv) {
-        const previousCv =
-          Boolean(
-            existing.record
-              .cvFileId
-          );
-
-        const uploaded =
-          saveCv_(
-            sheet,
-            existing.row,
-            existing.record,
-            body.cv
-          );
-
-        existing.record.cvFileId =
-          uploaded.cvFileId;
-
-        existing.record.cvName =
-          uploaded.cvName;
-
-        existing.record.cvUpdatedAt =
-          uploaded.cvUpdatedAt;
-
-        existing.record.state =
-          uploaded.state;
-
-        logAudit_(
-          previousCv
-            ? 'CV_REPLACE'
-            : 'CV_UPLOAD',
-          existing.record,
-          existingState,
-          uploaded.state,
-          'CV submitted during repeat registration.',
-          'system'
-        );
-      }
-
-      sendMagicLink_(
-        existing.record,
-        {
-          returning: true,
-
-          cvUploaded:
-            hasCv,
-
-          registrationStatus:
-            registrationStatus,
-        }
+      return handleExistingRegistration_(
+        sheet,
+        existing,
+        body,
+        hasCv
       );
-
-      logAudit_(
-        'RESEND_MAGIC_LINK',
-        existing.record,
-        existing.record.state,
-        existing.record.state,
-        'Magic link resent during repeat registration.',
-        'system'
-      );
-
-      return ok_({
-        registered: true,
-
-        status:
-          registrationStatus,
-
-        alreadyRegistered:
-          true,
-
-        cvUploaded:
-          hasCv,
-
-        magicLinkSent:
-          true,
-      });
     }
 
     const availability =
@@ -359,51 +299,105 @@ function handleRegister_(
       );
     }
 
-    const token =
-      Utilities.getUuid();
+    const now =
+      new Date();
 
-    const record =
-      Object.assign(
-        {},
-        data,
-        {
-          timestamp:
-            new Date(),
-
-          token:
-            token,
-
-          cvFileId:
-            '',
-
-          cvName:
-            '',
-
-          cvUpdatedAt:
-            '',
-
-          state:
-            admission.storedState,
-        }
+    const registrationId =
+      createNextRegistrationId_(
+        sheet
       );
 
-    sheet.appendRow(
-      HEADERS.map(
-        function (
-          header
-        ) {
-          return record[
-            header
-          ];
-        }
-      )
+    const registrationStatus =
+      admission
+        .registrationStatus;
+
+    const legacyState =
+      legacyStateFor_(
+        registrationStatus,
+        'none'
+      );
+
+    const record = {
+      registrationId:
+        registrationId,
+
+      registeredAt:
+        now,
+
+      token:
+        Utilities.getUuid(),
+
+      name:
+        data.name,
+
+      email:
+        data.email,
+
+      mobileNumber:
+        data.mobileNumber,
+
+      course:
+        data.course,
+
+      year:
+        data.year,
+
+      registrationStatus:
+        registrationStatus,
+
+      cvStatus:
+        'none',
+
+      hasCvConsent:
+        data.hasCvConsent,
+
+      hasGdprConsent:
+        data.hasGdprConsent,
+
+      cvFileId:
+        '',
+
+      cvName:
+        '',
+
+      cvSubmittedAt:
+        '',
+
+      cvUpdatedAt:
+        '',
+
+      checkedIn:
+        false,
+
+      checkedInAt:
+        '',
+
+      cancelledAt:
+        '',
+
+      notes:
+        '',
+
+      /*
+       * Temporary backwards compatibility.
+       */
+      timestamp:
+        now,
+
+      curse:
+        data.course,
+
+      state:
+        legacyState,
+    };
+
+    appendRegistration_(
+      sheet,
+      record
     );
 
     const row =
       sheet.getLastRow();
-
-    const initialState =
-      record.state;
 
     let cvUploaded =
       false;
@@ -417,42 +411,34 @@ function handleRegister_(
           body.cv
         );
 
-      record.cvFileId =
-        uploaded.cvFileId;
-
-      record.cvName =
-        uploaded.cvName;
-
-      record.cvUpdatedAt =
-        uploaded.cvUpdatedAt;
-
-      record.state =
-        uploaded.state;
+      applyCvResultToRecord_(
+        record,
+        uploaded
+      );
 
       cvUploaded =
         true;
 
       logAudit_(
-        'CV_UPLOAD',
+        'CV_UPLOADED',
         record,
-        initialState,
-        uploaded.state,
+        'none',
+        uploaded.cvStatus,
         'CV submitted with registration.',
-        'system'
+        'PUBLIC'
       );
     }
 
     logAudit_(
-      admission
-        .registrationStatus ===
+      registrationStatus ===
         'waitlisted'
-        ? 'WAITLIST_JOIN'
-        : 'REGISTER',
+        ? 'REGISTRATION_WAITLISTED'
+        : 'REGISTRATION_CREATED',
       record,
       '',
-      record.state,
+      registrationStatus,
       'New public registration.',
-      'system'
+      'PUBLIC'
     );
 
     sendMagicLink_(
@@ -465,8 +451,7 @@ function handleRegister_(
           cvUploaded,
 
         registrationStatus:
-          admission
-            .registrationStatus,
+          registrationStatus,
       }
     );
 
@@ -475,8 +460,7 @@ function handleRegister_(
         true,
 
       status:
-        admission
-          .registrationStatus,
+        registrationStatus,
 
       alreadyRegistered:
         false,
@@ -490,6 +474,109 @@ function handleRegister_(
   } finally {
     lock.releaseLock();
   }
+}
+
+function handleExistingRegistration_(
+  sheet,
+  existing,
+  body,
+  hasCv
+) {
+  const record =
+    existing.record;
+
+  const registrationStatus =
+    normalizedRegistrationStatus_(
+      record
+    );
+
+  if (
+    registrationStatus ===
+    'cancelled'
+  ) {
+    return fail_(
+      'registration_cancelled',
+      'This registration has been cancelled. Contact the DETI+ team if you need help.'
+    );
+  }
+
+  let cvUploaded =
+    false;
+
+  if (hasCv) {
+    const previousCvStatus =
+      normalizedCvStatus_(
+        record
+      );
+
+    const uploaded =
+      saveCv_(
+        sheet,
+        existing.row,
+        record,
+        body.cv
+      );
+
+    applyCvResultToRecord_(
+      record,
+      uploaded
+    );
+
+    cvUploaded =
+      true;
+
+    logAudit_(
+      previousCvStatus ===
+        'none'
+        ? 'CV_UPLOADED'
+        : 'CV_REPLACED',
+      record,
+      previousCvStatus,
+      uploaded.cvStatus,
+      'CV submitted during repeat registration.',
+      'PUBLIC'
+    );
+  }
+
+  sendMagicLink_(
+    record,
+    {
+      returning:
+        true,
+
+      cvUploaded:
+        cvUploaded,
+
+      registrationStatus:
+        registrationStatus,
+    }
+  );
+
+  logAudit_(
+    'MAGIC_LINK_RESENT',
+    record,
+    registrationStatus,
+    registrationStatus,
+    'Magic link resent during repeat registration.',
+    'PUBLIC'
+  );
+
+  return ok_({
+    registered:
+      true,
+
+    status:
+      registrationStatus,
+
+    alreadyRegistered:
+      true,
+
+    cvUploaded:
+      cvUploaded,
+
+    magicLinkSent:
+      true,
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -515,8 +602,13 @@ function handleStatus_(
   const record =
     found.record;
 
-  const state =
-    normalizedRecordState_(
+  const registrationStatus =
+    normalizedRegistrationStatus_(
+      record
+    );
+
+  const cvStatus =
+    normalizedCvStatus_(
       record
     );
 
@@ -524,6 +616,10 @@ function handleStatus_(
     getCvAvailability_();
 
   return ok_({
+    registrationId:
+      record.registrationId ||
+      '',
+
     name:
       record.name,
 
@@ -533,12 +629,10 @@ function handleStatus_(
       ),
 
     registrationStatus:
-      state ===
-      'cancelled'
-        ? 'cancelled'
-        : registrationStatusFromRecord_(
-            record
-          ),
+      registrationStatus,
+
+    cvStatus:
+      cvStatus,
 
     hasCv:
       Boolean(
@@ -549,15 +643,18 @@ function handleStatus_(
       record.cvName ||
       '',
 
+    cvSubmittedAt:
+      toIsoStringOrEmpty_(
+        record.cvSubmittedAt
+      ),
+
     cvUpdatedAt:
-      record.cvUpdatedAt
-        ? new Date(
-            record.cvUpdatedAt
-          ).toISOString()
-        : '',
+      toIsoStringOrEmpty_(
+        record.cvUpdatedAt
+      ),
 
     cvUploadsOpen:
-      state !==
+      registrationStatus !==
         'cancelled' &&
       cvAvailability.open,
 
@@ -702,10 +799,13 @@ function handleUpload_(
       );
     }
 
-    if (
-      normalizedRecordState_(
+    const registrationStatus =
+      normalizedRegistrationStatus_(
         found.record
-      ) ===
+      );
+
+    if (
+      registrationStatus ===
       'cancelled'
     ) {
       return fail_(
@@ -760,9 +860,7 @@ function handleUpload_(
       );
     }
 
-    if (
-      !bytes.length
-    ) {
+    if (!bytes.length) {
       return fail_(
         'invalid_file',
         'The file is empty.'
@@ -793,14 +891,9 @@ function handleUpload_(
     const record =
       found.record;
 
-    const previousState =
-      normalizedRecordState_(
+    const previousCvStatus =
+      normalizedCvStatus_(
         record
-      );
-
-    const replacing =
-      Boolean(
-        record.cvFileId
       );
 
     const uploaded =
@@ -820,29 +913,24 @@ function handleUpload_(
         }
       );
 
-    record.cvFileId =
-      uploaded.cvFileId;
-
-    record.cvName =
-      uploaded.cvName;
-
-    record.cvUpdatedAt =
-      uploaded.cvUpdatedAt;
-
-    record.state =
-      uploaded.state;
+    applyCvResultToRecord_(
+      record,
+      uploaded
+    );
 
     logAudit_(
-      replacing
-        ? 'CV_REPLACE'
-        : 'CV_UPLOAD',
+      previousCvStatus ===
+        'none'
+        ? 'CV_UPLOADED'
+        : 'CV_REPLACED',
       record,
-      previousState,
-      uploaded.state,
-      replacing
-        ? 'Participant replaced existing CV.'
-        : 'Participant submitted CV.',
-      'system'
+      previousCvStatus,
+      uploaded.cvStatus,
+      previousCvStatus ===
+        'none'
+        ? 'Participant submitted CV.'
+        : 'Participant replaced existing CV.',
+      'PUBLIC'
     );
 
     sendCvConfirmation_(
@@ -854,8 +942,14 @@ function handleUpload_(
       uploaded:
         true,
 
+      cvStatus:
+        uploaded.cvStatus,
+
       cvName:
         uploaded.cvName,
+
+      cvSubmittedAt:
+        uploaded.cvSubmittedAt,
 
       cvUpdatedAt:
         uploaded.cvUpdatedAt,
@@ -908,6 +1002,11 @@ function saveCv_(
     }
   }
 
+  const replacing =
+    Boolean(
+      record.cvFileId
+    );
+
   const safeName =
     buildCvFilename_(
       record.name
@@ -921,13 +1020,110 @@ function saveCv_(
         )
       );
 
+  /*
+   * Create the new file first.
+   *
+   * This avoids losing the participant's previous CV if Drive fails while
+   * creating the replacement.
+   */
+  const newFile =
+    folder
+      .createFile(
+        Utilities
+          .newBlob(
+            bytes,
+            ALLOWED_MIME,
+            safeName
+          )
+      );
+
+  const previousFileId =
+    String(
+      record.cvFileId ||
+      ''
+    );
+
+  const now =
+    new Date();
+
+  const currentSubmittedAt =
+    record.cvSubmittedAt
+      ? record.cvSubmittedAt
+      : now;
+
+  const cvStatus =
+    replacing
+      ? 'updated'
+      : 'submitted';
+
+  const registrationStatus =
+    normalizedRegistrationStatus_(
+      record
+    );
+
+  const legacyState =
+    legacyStateFor_(
+      registrationStatus,
+      cvStatus
+    );
+
+  try {
+    setCells_(
+      sheet,
+      row,
+      {
+        cvFileId:
+          newFile.getId(),
+
+        cvName:
+          safeName,
+
+        cvStatus:
+          cvStatus,
+
+        cvSubmittedAt:
+          currentSubmittedAt,
+
+        cvUpdatedAt:
+          now,
+
+        /*
+         * Legacy compatibility.
+         */
+        state:
+          legacyState,
+      }
+    );
+  } catch (err) {
+    /*
+     * Spreadsheet update failed. Remove the newly-created file so we do not
+     * leave an orphan behind.
+     */
+    try {
+      newFile.setTrashed(
+        true
+      );
+    } catch (cleanupErr) {
+      console.warn(
+        'Failed to clean new CV after sheet error: ' +
+        cleanupErr
+      );
+    }
+
+    throw err;
+  }
+
+  /*
+   * Only trash the old CV after the replacement has been safely persisted.
+   */
   if (
-    record.cvFileId
+    replacing &&
+    previousFileId
   ) {
     try {
       DriveApp
         .getFileById(
-          record.cvFileId
+          previousFileId
         )
         .setTrashed(
           true
@@ -940,62 +1136,53 @@ function saveCv_(
     }
   }
 
-  const file =
-    folder
-      .createFile(
-        Utilities
-          .newBlob(
-            bytes,
-            ALLOWED_MIME,
-            safeName
-          )
-      );
-
-  const now =
-    new Date();
-
-  const currentState =
-    normalizedRecordState_(
-      record
-    );
-
-  const nextState =
-    currentState ===
-      'waitlisted'
-      ? 'waitlisted'
-      : 'cv_delivered';
-
-  setCells_(
-    sheet,
-    row,
-    {
-      cvFileId:
-        file.getId(),
-
-      cvName:
-        safeName,
-
-      cvUpdatedAt:
-        now,
-
-      state:
-        nextState,
-    }
-  );
-
   return {
     cvFileId:
-      file.getId(),
+      newFile.getId(),
 
     cvName:
       safeName,
 
+    cvStatus:
+      cvStatus,
+
+    cvSubmittedAt:
+      toIsoStringOrEmpty_(
+        currentSubmittedAt
+      ),
+
     cvUpdatedAt:
       now.toISOString(),
 
-    state:
-      nextState,
+    legacyState:
+      legacyState,
   };
+}
+
+function applyCvResultToRecord_(
+  record,
+  uploaded
+) {
+  record.cvFileId =
+    uploaded.cvFileId;
+
+  record.cvName =
+    uploaded.cvName;
+
+  record.cvStatus =
+    uploaded.cvStatus;
+
+  record.cvSubmittedAt =
+    uploaded.cvSubmittedAt;
+
+  record.cvUpdatedAt =
+    uploaded.cvUpdatedAt;
+
+  /*
+   * Temporary legacy mirror.
+   */
+  record.state =
+    uploaded.legacyState;
 }
 
 function validateCvPayload_(
@@ -1026,9 +1213,7 @@ function validateCvPayload_(
     return 'The file could not be read.';
   }
 
-  if (
-    !bytes.length
-  ) {
+  if (!bytes.length) {
     return 'The file is empty.';
   }
 
@@ -1093,11 +1278,16 @@ function handleResend_(
 
   if (
     found &&
-    normalizedRecordState_(
+    normalizedRegistrationStatus_(
       found.record
     ) !==
       'cancelled'
   ) {
+    const registrationStatus =
+      normalizedRegistrationStatus_(
+        found.record
+      );
+
     sendMagicLink_(
       found.record,
       {
@@ -1105,19 +1295,17 @@ function handleResend_(
           true,
 
         registrationStatus:
-          registrationStatusFromRecord_(
-            found.record
-          ),
+          registrationStatus,
       }
     );
 
     logAudit_(
-      'RESEND_MAGIC_LINK',
+      'MAGIC_LINK_RESENT',
       found.record,
-      found.record.state,
-      found.record.state,
+      registrationStatus,
+      registrationStatus,
       'Public magic-link resend.',
-      'system'
+      'PUBLIC'
     );
   }
 
@@ -1139,7 +1327,8 @@ function sendMagicLink_(
   opts
 ) {
   const options =
-    opts || {};
+    opts ||
+    {};
 
   const link =
     cvLink_(
@@ -1154,12 +1343,13 @@ function sendMagicLink_(
   const registrationStatus =
     options
       .registrationStatus ||
-    registrationStatusFromRecord_(
+    normalizedRegistrationStatus_(
       record
     );
 
   let subject;
   let intro;
+  let badge;
 
   if (
     registrationStatus ===
@@ -1167,6 +1357,9 @@ function sendMagicLink_(
   ) {
     subject =
       'DETI+ 2026 — waiting list';
+
+    badge =
+      'WAITING LIST';
 
     if (
       options.returning
@@ -1183,7 +1376,10 @@ function sendMagicLink_(
     }
   } else {
     subject =
-      'DETI+ 2026 — your registration';
+      'DETI+ 2026 — registration confirmed';
+
+    badge =
+      'REGISTRATION CONFIRMED';
 
     if (
       options.returning
@@ -1191,7 +1387,7 @@ function sendMagicLink_(
       intro =
         cvUploaded
           ? 'Your CV was received and your registration is already active. Here is your personal link to view or replace it.'
-          : 'Here is your personal link again to submit, view or replace your CV.';
+          : 'Your registration is already active. Here is your personal link again to submit, view or replace your CV.';
     } else {
       intro =
         cvUploaded
@@ -1203,6 +1399,7 @@ function sendMagicLink_(
   sendParticipantEmail_(
     record,
     subject,
+    badge,
     intro,
     link
   );
@@ -1213,7 +1410,7 @@ function sendCvConfirmation_(
   filename
 ) {
   const registrationStatus =
-    registrationStatusFromRecord_(
+    normalizedRegistrationStatus_(
       record
     );
 
@@ -1233,7 +1430,8 @@ function sendCvConfirmation_(
 
   sendParticipantEmail_(
     record,
-    'DETI+ — CV received',
+    'DETI+ 2026 — CV received',
+    'CV RECEIVED',
     intro,
     cvLink_(
       record.token
@@ -1250,6 +1448,7 @@ function sendPromotionEmail_(
   sendParticipantEmail_(
     record,
     'DETI+ 2026 — your place is confirmed',
+    'PLACE CONFIRMED',
     intro,
     cvLink_(
       record.token
@@ -1260,6 +1459,7 @@ function sendPromotionEmail_(
 function sendParticipantEmail_(
   record,
   subject,
+  badge,
   intro,
   link
 ) {
@@ -1282,6 +1482,7 @@ function sendParticipantEmail_(
       htmlBody:
         htmlEmail_(
           record.name,
+          badge,
           intro,
           link
         ),
@@ -1312,7 +1513,7 @@ function textEmail_(
   link
 ) {
   return [
-    'Hello!',
+    'DETI+ 2026',
     '',
     intro,
     '',
@@ -1328,6 +1529,7 @@ function textEmail_(
 
 function htmlEmail_(
   name,
+  badge,
   intro,
   link
 ) {
@@ -1343,11 +1545,27 @@ function htmlEmail_(
       ''
     );
 
-  return [
-    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:15px;',
-    'line-height:1.6;color:#111;max-width:520px">',
+  const safeBadge =
+    escapeHtml_(
+      badge ||
+      ''
+    );
 
-    '<p>Hi ',
+  return [
+    '<div style="background:#f4f7fb;padding:32px 16px">',
+    '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;',
+    'background:#ffffff;border:1px solid #dbe3ef">',
+
+    '<div style="background:#071a36;padding:24px 28px">',
+    '<div style="font-size:25px;font-weight:800;color:#ffffff;letter-spacing:-1px">DETI<span style="color:#2487ff">+</span></div>',
+    '<div style="margin-top:8px;color:#8fb8ea;font-size:11px;letter-spacing:2px;font-weight:700">',
+    safeBadge,
+    '</div>',
+    '</div>',
+
+    '<div style="padding:30px 28px;color:#172033;font-size:15px;line-height:1.7">',
+
+    '<p style="margin-top:0">Hi ',
     firstName,
     ',</p>',
 
@@ -1357,23 +1575,30 @@ function htmlEmail_(
     ),
     '</p>',
 
-    '<p style="margin:28px 0">',
+    '<p style="margin:30px 0">',
 
     '<a href="',
     escapeHtml_(
       link
     ),
-    '" style="background:#111;color:#fff;padding:12px 22px;border-radius:8px;',
-    'text-decoration:none;display:inline-block;font-weight:600">Manage my CV</a>',
+    '" style="background:#1476df;color:#fff;padding:13px 22px;',
+    'text-decoration:none;display:inline-block;font-weight:700;',
+    'font-size:13px;letter-spacing:.5px">Manage my CV</a>',
 
     '</p>',
 
-    '<p style="color:#666;font-size:13px">',
-    'Save this email — the link is personal.',
+    '<p style="margin-bottom:0;color:#6c788d;font-size:12px">',
+    'Save this email — this link is personal and should not be shared.',
     '</p>',
 
-    '<p style="color:#666;font-size:13px">— DETI+ Team</p>',
+    '</div>',
 
+    '<div style="border-top:1px solid #e2e8f0;padding:18px 28px;',
+    'color:#7b8799;font-size:12px">',
+    'DETI+ 2026 · Universidade de Aveiro',
+    '</div>',
+
+    '</div>',
     '</div>',
   ].join('');
 }
@@ -1385,6 +1610,17 @@ function htmlEmail_(
 function normalizeRegistration_(
   body
 ) {
+  /*
+   * body.curse remains accepted for one compatibility release.
+   */
+  const course =
+    trim_(
+      body.course != null
+        ? body.course
+        : body.curse,
+      120
+    );
+
   return {
     name:
       trim_(
@@ -1403,11 +1639,8 @@ function normalizeRegistration_(
         30
       ),
 
-    curse:
-      trim_(
-        body.curse,
-        120
-      ),
+    course:
+      course,
 
     year:
       trim_(
@@ -1458,7 +1691,7 @@ function validateRegistration_(
   }
 
   if (
-    data.curse.length <
+    data.course.length <
     2
   ) {
     return 'Specify your course.';
@@ -1534,6 +1767,177 @@ function isPdf_(
 }
 
 // -----------------------------------------------------------------------------
+// Registration / CV state compatibility
+// -----------------------------------------------------------------------------
+
+function normalizedRegistrationStatus_(
+  record
+) {
+  const current =
+    String(
+      record &&
+      record.registrationStatus
+        ? record.registrationStatus
+        : ''
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    current ===
+      'confirmed' ||
+    current ===
+      'waitlisted' ||
+    current ===
+      'cancelled' ||
+    current ===
+      'checked_in'
+  ) {
+    return current;
+  }
+
+  /*
+   * Legacy fallback.
+   */
+  const legacy =
+    String(
+      record &&
+      record.state
+        ? record.state
+        : ''
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    legacy ===
+    'waitlisted'
+  ) {
+    return 'waitlisted';
+  }
+
+  if (
+    legacy ===
+    'cancelled'
+  ) {
+    return 'cancelled';
+  }
+
+  if (
+    legacy ===
+    'checked_in'
+  ) {
+    return 'checked_in';
+  }
+
+  return 'confirmed';
+}
+
+function normalizedCvStatus_(
+  record
+) {
+  const current =
+    String(
+      record &&
+      record.cvStatus
+        ? record.cvStatus
+        : ''
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    current ===
+      'none' ||
+    current ===
+      'submitted' ||
+    current ===
+      'updated'
+  ) {
+    return current;
+  }
+
+  if (
+    record &&
+    record.cvFileId
+  ) {
+    return 'submitted';
+  }
+
+  const legacyState =
+    String(
+      record &&
+      record.state
+        ? record.state
+        : ''
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    legacyState ===
+    'cv_delivered'
+  ) {
+    return 'submitted';
+  }
+
+  return 'none';
+}
+
+function legacyStateFor_(
+  registrationStatus,
+  cvStatus
+) {
+  if (
+    registrationStatus ===
+    'cancelled'
+  ) {
+    return 'cancelled';
+  }
+
+  if (
+    registrationStatus ===
+    'waitlisted'
+  ) {
+    return 'waitlisted';
+  }
+
+  if (
+    registrationStatus ===
+    'checked_in'
+  ) {
+    return 'checked_in';
+  }
+
+  if (
+    cvStatus ===
+      'submitted' ||
+    cvStatus ===
+      'updated'
+  ) {
+    return 'cv_delivered';
+  }
+
+  return 'registered';
+}
+
+/**
+ * Backwards-compatible helper used by admin/statistics code during migration.
+ */
+function normalizedRecordState_(
+  record
+) {
+  return legacyStateFor_(
+    normalizedRegistrationStatus_(
+      record
+    ),
+    normalizedCvStatus_(
+      record
+    )
+  );
+}
+
+// -----------------------------------------------------------------------------
 // Filename
 // -----------------------------------------------------------------------------
 
@@ -1571,7 +1975,7 @@ function buildCvFilename_(
     Utilities
       .formatDate(
         new Date(),
-        'Europe/Lisbon',
+        DEFAULT_EVENT_TIMEZONE,
         'yyyyMMdd-HHmmss'
       );
 
@@ -1638,8 +2042,10 @@ function fail_(
 ) {
   return {
     ok: false,
+
     error:
       code,
+
     message:
       message,
   };
@@ -1797,4 +2203,34 @@ function escapeHtml_(
       /'/g,
       '&#39;'
     );
+}
+
+function toIsoStringOrEmpty_(
+  value
+) {
+  if (
+    value === '' ||
+    value === null ||
+    typeof value ===
+      'undefined'
+  ) {
+    return '';
+  }
+
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(
+          value
+        );
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return '';
+  }
+
+  return date.toISOString();
 }
