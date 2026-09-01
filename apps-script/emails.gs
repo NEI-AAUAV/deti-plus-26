@@ -559,13 +559,13 @@ function renderParticipantEmail_(record, template) {
       EMAIL_THEME.border,
       ';">',
       '<div style="font-family:\'Vayu Sans\',Arial,Helvetica,sans-serif;font-size:10px;',
-      'line-height:1.4;letter-spacing:2px;color:',
+      'line-height:1.4;letter-spacing:1.6px;font-weight:600;color:',
       EMAIL_THEME.muted,
       ';text-transform:uppercase;margin-bottom:7px;">',
       escapeHtml_(fact.label || ''),
       '</div>',
       '<div style="font-family:\'Architype Stedelijk\',\'Arial Narrow\',Arial,sans-serif;',
-      'font-size:17px;line-height:1.15;letter-spacing:.4px;color:',
+      'font-size:16px;line-height:1.35;letter-spacing:0;font-weight:600;color:',
       EMAIL_THEME.white,
       ';text-transform:uppercase;">',
       escapeHtml_(fact.value || ''),
@@ -606,11 +606,11 @@ function renderParticipantEmail_(record, template) {
       EMAIL_THEME.panelAlt,
       ';padding:16px 18px;">',
       '<div style="font-family:\'Vayu Sans\',Arial,Helvetica,sans-serif;font-size:9px;',
-      'letter-spacing:2.5px;color:',
+      'letter-spacing:1.8px;font-weight:600;color:',
       EMAIL_THEME.muted,
       ';text-transform:uppercase;margin-bottom:5px;">STATUS</div>',
       '<div style="font-family:\'Architype Stedelijk\',\'Arial Narrow\',Arial,sans-serif;',
-      'font-size:20px;line-height:1.1;letter-spacing:1px;color:',
+      'font-size:18px;line-height:1.3;letter-spacing:.2px;font-weight:600;color:',
       statusColour,
       ';text-transform:uppercase;">',
       escapeHtml_(template.status),
@@ -632,8 +632,8 @@ function renderParticipantEmail_(record, template) {
       ';"><a href="',
       escapeHtml_(action.url),
       '" target="_blank" style="display:inline-block;padding:14px 20px;',
-      'font-family:Helvetica,Arial,sans-serif;',
-      'font-size:14px;line-height:1;letter-spacing:1.8px;text-transform:uppercase;',
+      'font-family:'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;',
+      'font-size:13px;line-height:1;letter-spacing:1.2px;font-weight:700;text-transform:uppercase;',
       'text-decoration:none;color:',
       primary ? EMAIL_THEME.black : EMAIL_THEME.white,
       ';">',
@@ -712,20 +712,20 @@ function renderParticipantEmail_(record, template) {
 
     '<tr><td class="email-pad" style="padding:38px 34px 40px;">',
     '<div style="font-family:\'Vayu Sans\',Arial,Helvetica,sans-serif;font-size:10px;',
-    'line-height:1.4;letter-spacing:3px;text-transform:uppercase;color:',
+    'line-height:1.4;letter-spacing:2.2px;font-weight:600;text-transform:uppercase;color:',
     accent,
     ';margin-bottom:16px;">',
     escapeHtml_(template.eyebrow || 'DETI+ 2026'),
     '</div>',
     headlineHtml,
     '<p style="margin:0 0 15px;font-family:\'Vayu Sans\',Arial,Helvetica,sans-serif;',
-    'font-size:15px;line-height:1.7;color:',
+    'font-size:15px;line-height:1.65;font-weight:400;color:',
     EMAIL_THEME.white,
     ';">',
     firstName ? 'hi ' + firstName + ',' : 'hi,',
     '</p>',
     '<p style="margin:0;font-family:\'Vayu Sans\',Arial,Helvetica,sans-serif;',
-    'font-size:15px;line-height:1.75;color:',
+    'font-size:15px;line-height:1.7;font-weight:400;color:',
     EMAIL_THEME.muted,
     ';">',
     escapeHtml_(template.intro || ''),
@@ -834,7 +834,14 @@ function sendParticipantTemplate_(templateKey, record, data, options) {
       skipDedupeLookup: Boolean(options.skipDedupeLookup),
     });
 
-    return queued !== false;
+    if (queued === false) return false;
+
+    // Transactional messages must not wait for the scheduled queue worker.
+    // If Gmail rejects the send, attemptQueuedEmail_ records the failure and
+    // leaves it pending for the normal retry flow.
+    attemptQueuedEmail_(queued.sheet, queued.row, queued.record);
+
+    return true;
   } catch (err) {
     console.warn('Could not queue participant email (' + templateKey + '): ' + err);
     return false;
