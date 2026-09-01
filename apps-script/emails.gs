@@ -57,16 +57,74 @@ function emailAssetUrl_(path) {
   );
 }
 
+const EMAIL_PUBLIC_ASSET_BASE =
+  'https://nei-aauav.github.io/deti-plus-26/email/';
+
+const EMAIL_HEADLINES = {
+  "you're in.": {
+    file: 'headline-youre-in.png',
+    width: 310,
+  },
+  'waiting list.': {
+    file: 'headline-waiting-list.png',
+    width: 390,
+  },
+  'your link.': {
+    file: 'headline-your-link.png',
+    width: 285,
+  },
+  'CV received.': {
+    file: 'headline-cv-received.png',
+    width: 365,
+  },
+  'CV updated.': {
+    file: 'headline-cv-updated.png',
+    width: 350,
+  },
+  'cancelled.': {
+    file: 'headline-cancelled.png',
+    width: 300,
+  },
+  'restored.': {
+    file: 'headline-restored.png',
+    width: 285,
+  },
+  'status update.': {
+    file: 'headline-status-update.png',
+    width: 395,
+  },
+  'one week left.': {
+    file: 'headline-one-week-left.png',
+    width: 410,
+  },
+  '48 hours left.': {
+    file: 'headline-48-hours-left.png',
+    width: 410,
+  },
+  'one week to go.': {
+    file: 'headline-one-week-to-go.png',
+    width: 445,
+  },
+  'tomorrow.': {
+    file: 'headline-tomorrow.png',
+    width: 310,
+  },
+  'today.': {
+    file: 'headline-today.png',
+    width: 225,
+  },
+  'thank you.': {
+    file: 'headline-thank-you.png',
+    width: 300,
+  },
+};
+
 function emailLogoUrl_() {
-  return emailAssetUrl_('email/deti-plus-logo.png');
+  return EMAIL_PUBLIC_ASSET_BASE + 'deti-plus-logo.png';
 }
 
-function emailArchitypeUrl_() {
-  return emailAssetUrl_('fonts/Architype-Stedelijk.ttf');
-}
-
-function emailVayuUrl_() {
-  return emailAssetUrl_('fonts/VayuSans-Medium.ttf');
+function emailHeadline_(title) {
+  return EMAIL_HEADLINES[String(title || '')] || null;
 }
 
 function firstName_(name) {
@@ -462,6 +520,34 @@ function buildParticipantTemplate_(templateKey, record, data) {
 
 function renderParticipantEmail_(record, template) {
   const firstName = escapeHtml_(firstName_(record && record.name));
+
+  const headline =
+    emailHeadline_(
+      template.title
+    );
+
+  const headlineHtml =
+    headline
+      ? [
+          '<img class="email-headline" src="',
+          escapeHtml_(EMAIL_PUBLIC_ASSET_BASE + headline.file),
+          '" width="',
+          String(headline.width),
+          '" alt="',
+          escapeHtml_(template.title || ''),
+          '" style="display:block;width:',
+          String(headline.width),
+          'px;max-width:100%;height:auto;border:0;margin:0 0 30px 0;">',
+        ].join('')
+      : [
+          '<div style="font-family:Helvetica,Arial,sans-serif;',
+          'font-size:50px;line-height:1;font-weight:700;letter-spacing:-2px;',
+          'color:',
+          EMAIL_THEME.white,
+          ';margin:0 0 30px 0;">',
+          escapeHtml_(template.title || ''),
+          '</div>',
+        ].join('');
   const accent = EMAIL_THEME.accent;
   const statusColour =
     template.statusTone === 'accent' ? EMAIL_THEME.accent : EMAIL_THEME.white;
@@ -546,7 +632,7 @@ function renderParticipantEmail_(record, template) {
       ';"><a href="',
       escapeHtml_(action.url),
       '" target="_blank" style="display:inline-block;padding:14px 20px;',
-      'font-family:\'Architype Stedelijk\',\'Arial Narrow\',Arial,sans-serif;',
+      'font-family:Helvetica,Arial,sans-serif;',
       'font-size:14px;line-height:1;letter-spacing:1.8px;text-transform:uppercase;',
       'text-decoration:none;color:',
       primary ? EMAIL_THEME.black : EMAIL_THEME.white,
@@ -587,16 +673,10 @@ function renderParticipantEmail_(record, template) {
     '<!doctype html><html><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
     '<style>',
-    '@font-face{font-family:"Architype Stedelijk";src:url("',
-    emailArchitypeUrl_(),
-    '") format("truetype");font-style:normal;font-weight:400;}',
-    '@font-face{font-family:"Vayu Sans";src:url("',
-    emailVayuUrl_(),
-    '") format("truetype");font-style:normal;font-weight:500;}',
     'body{margin:0!important;padding:0!important;background:#000000!important;}',
     '@media only screen and (max-width:620px){.email-shell{width:100%!important;}',
     '.email-pad{padding-left:22px!important;padding-right:22px!important;}',
-    '.email-title{font-size:46px!important;}}',
+    '.email-headline{max-width:100%!important;height:auto!important;}}',
     '</style></head><body style="margin:0;padding:0;background:',
     EMAIL_THEME.black,
     ';">',
@@ -637,12 +717,7 @@ function renderParticipantEmail_(record, template) {
     ';margin-bottom:16px;">',
     escapeHtml_(template.eyebrow || 'DETI+ 2026'),
     '</div>',
-    '<div class="email-title" style="font-family:\'Architype Stedelijk\',\'Arial Narrow\',Arial,sans-serif;',
-    'font-size:58px;line-height:.9;letter-spacing:-1px;color:',
-    EMAIL_THEME.white,
-    ';text-transform:lowercase;margin:0 0 30px;">',
-    escapeHtml_(template.title || ''),
-    '</div>',
+    headlineHtml,
     '<p style="margin:0 0 15px;font-family:\'Vayu Sans\',Arial,Helvetica,sans-serif;',
     'font-size:15px;line-height:1.7;color:',
     EMAIL_THEME.white,
@@ -759,14 +834,7 @@ function sendParticipantTemplate_(templateKey, record, data, options) {
       skipDedupeLookup: Boolean(options.skipDedupeLookup),
     });
 
-    if (queued === false) return false;
-
-    // Transactional messages must not wait for the scheduled queue worker.
-    // If Gmail rejects the send, attemptQueuedEmail_ records the failure and
-    // leaves it pending for the normal retry flow.
-    attemptQueuedEmail_(queued.sheet, queued.row, queued.record);
-
-    return true;
+    return queued !== false;
   } catch (err) {
     console.warn('Could not queue participant email (' + templateKey + '): ' + err);
     return false;
