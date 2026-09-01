@@ -306,10 +306,7 @@ test(
 
             class MockDate extends NativeDate {
               constructor(
-                ...args:
-                ConstructorParameters<
-                  typeof Date
-                >
+                ...args: unknown[]
               ) {
                 if (
                   args.length ===
@@ -323,7 +320,9 @@ test(
                 }
 
                 super(
-                  ...args,
+                  ...(args as [
+                    string | number,
+                  ]),
                 );
               }
 
