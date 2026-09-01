@@ -17,11 +17,13 @@ const EMAIL_QUEUE_HEADERS = [
   'sentAt',
   'type',
   'registrationId',
+  'templateKey',
+  'dedupeKey',
+  'lastAttemptAt',
 ];
 
 function getEmailQueueSheet_() {
   const sheet = getOrCreateSheet_(EMAIL_QUEUE_SHEET_NAME);
-
   ensureEmailQueueSheet_(sheet);
   formatEmailQueueSheet_(sheet);
   return sheet;
@@ -29,22 +31,38 @@ function getEmailQueueSheet_() {
 
 function getEmailQueueSheetFast_() {
   const sheet = getSpreadsheet_().getSheetByName(EMAIL_QUEUE_SHEET_NAME);
-  if (!sheet) throw new Error('Email Queue sheet is missing; run initializeOperations.');
+  if (!sheet) return getEmailQueueSheet_();
+  ensureEmailQueueSheet_(sheet);
   return sheet;
 }
 
+/**
+ * Extends existing queues in place. Existing rows remain untouched; new
+ * lifecycle columns are appended to the right when missing.
+ */
 function ensureEmailQueueSheet_(sheet) {
+  ensureSheetSize_(sheet, Math.max(sheet.getMaxRows(), 2), EMAIL_QUEUE_HEADERS.length);
 
   if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, EMAIL_QUEUE_HEADERS.length).setValues([EMAIL_QUEUE_HEADERS]);
-  } else {
-    EMAIL_QUEUE_HEADERS.forEach(function (header, index) {
-      if (String(sheet.getRange(1, index + 1).getValue() || '') !== header) {
-        sheet.getRange(1, index + 1).setValue(header);
-      }
-    });
+    sheet
+      .getRange(1, 1, 1, EMAIL_QUEUE_HEADERS.length)
+      .setValues([EMAIL_QUEUE_HEADERS]);
+    return;
   }
 
+  const existing = sheet
+    .getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1))
+    .getValues()[0]
+    .map(function (value) { return String(value || '').trim(); });
+
+  EMAIL_QUEUE_HEADERS.forEach(function (header) {
+    if (existing.indexOf(header) !== -1) return;
+
+    const targetColumn = existing.length + 1;
+    ensureSheetSize_(sheet, Math.max(sheet.getMaxRows(), 2), targetColumn);
+    sheet.getRange(1, targetColumn).setValue(header);
+    existing.push(header);
+  });
 }
 
 function formatEmailQueueSheet_(sheet) {
@@ -53,10 +71,10 @@ function formatEmailQueueSheet_(sheet) {
 
   const lastRow = sheet.getLastRow();
   const lastColumn = sheet.getLastColumn();
-
   if (lastColumn < 1) return;
 
-  sheet.getRange(1, 1, 1, lastColumn)
+  sheet
+    .getRange(1, 1, 1, lastColumn)
     .setBackground(DETI_SHEET_THEME.black)
     .setFontColor(DETI_SHEET_THEME.white)
     .setFontWeight('bold')
@@ -64,47 +82,106 @@ function formatEmailQueueSheet_(sheet) {
 
   sheet.setRowHeight(1, 40);
 
-  const widths = [155, 155, 230, 300, 320, 320, 220, 80, 100, 280, 155, 150, 130];
+  const widths = [
+    155, 155, 230, 300, 320, 320, 220, 80,
+    100, 280, 155, 170, 130, 190, 300, 155,
+  ];
+
   widths.forEach(function (width, index) {
     if (index + 1 <= lastColumn) sheet.setColumnWidth(index + 1, width);
   });
 
   if (lastRow >= 2) {
-    sheet.getRange(2, 1, lastRow - 1, lastColumn)
+    sheet
+      .getRange(2, 1, lastRow - 1, lastColumn)
       .setFontFamily(DETI_SHEET_THEME.font)
       .setVerticalAlignment('middle');
 
-    [1, 2, 11].forEach(function (column) {
+    [1, 2, 11, 16].forEach(function (column) {
       if (column <= lastColumn) {
-        sheet.getRange(2, column, lastRow - 1, 1).setNumberFormat('dd/mm/yyyy hh:mm');
+        sheet
+          .getRange(2, column, lastRow - 1, 1)
+          .setNumberFormat('dd/mm/yyyy hh:mm');
       }
     });
   }
 
-  // Large email bodies stay available but do not dominate the operational view.
-  if (lastColumn >= 6) {
-    sheet.hideColumns(5, 2);
-  }
+  if (lastColumn >= 6) sheet.hideColumns(5, 2);
 }
 
 function queueParticipantEmail_(email) {
   const sheet = getEmailQueueSheetFast_();
+
+  if (
+    email.dedupeKey &&
+    !email.skipDedupeLookup &&
+    emailQueueHasDedupeKey_(email.dedupeKey, sheet)
+  ) {
+    return false;
+  }
+
+  const map = getHeaderMap_(sheet);
   const row = sheet.getLastRow() + 1;
-  sheet.getRange(row, 1, 1, EMAIL_QUEUE_HEADERS.length).setValues([[
-    new Date(),
-    email.sendAfter || new Date(),
-    email.recipient,
-    email.subject,
-    email.textBody,
-    email.htmlBody || '',
-    email.replyTo || '',
-    0,
-    'pending',
-    '',
-    '',
-    email.type || '',
-    email.registrationId || '',
-  ]]);
+  const values = new Array(sheet.getLastColumn()).fill('');
+
+  const set = function (key, value) {
+    if (map[key]) values[map[key] - 1] = value;
+  };
+
+  set('createdAt', new Date());
+  set('sendAfter', email.sendAfter || new Date());
+  set('recipient', email.recipient);
+  set('subject', email.subject);
+  set('textBody', email.textBody);
+  set('htmlBody', email.htmlBody || '');
+  set('replyTo', email.replyTo || '');
+  set('attempts', 0);
+  set('status', 'pending');
+  set('lastError', '');
+  set('sentAt', '');
+  set('type', email.type || '');
+  set('registrationId', email.registrationId || '');
+  set('templateKey', email.templateKey || '');
+  set('dedupeKey', email.dedupeKey || '');
+  set('lastAttemptAt', '');
+
+  sheet.getRange(row, 1, 1, values.length).setValues([values]);
+  return true;
+}
+
+function emailQueueHasDedupeKey_(dedupeKey, sheet) {
+  if (!dedupeKey) return false;
+
+  sheet = sheet || getEmailQueueSheetFast_();
+  const map = getHeaderMap_(sheet);
+  if (!map.dedupeKey || sheet.getLastRow() < 2) return false;
+
+  const found = sheet
+    .getRange(2, map.dedupeKey, sheet.getLastRow() - 1, 1)
+    .createTextFinder(String(dedupeKey))
+    .matchEntireCell(true)
+    .findNext();
+
+  return Boolean(found);
+}
+
+
+function getEmailQueueDedupeSet_() {
+  const sheet = getEmailQueueSheetFast_();
+  const map = getHeaderMap_(sheet);
+  const set = new Set();
+
+  if (!map.dedupeKey || sheet.getLastRow() < 2) return set;
+
+  sheet
+    .getRange(2, map.dedupeKey, sheet.getLastRow() - 1, 1)
+    .getValues()
+    .forEach(function (row) {
+      const key = String(row[0] || '').trim();
+      if (key) set.add(key);
+    });
+
+  return set;
 }
 
 function processEmailQueue() {
@@ -117,13 +194,10 @@ function processEmailQueue() {
     if (sent >= 30 || quota <= sent) return true;
 
     const record = entry.record;
+    if (String(record.status) !== 'pending') return false;
 
-    if (
-      String(record.status) !== 'pending' ||
-      new Date(record.sendAfter).getTime() > Date.now()
-    ) {
-      return false;
-    }
+    const sendAfter = new Date(record.sendAfter).getTime();
+    if (Number.isFinite(sendAfter) && sendAfter > Date.now()) return false;
 
     const attempts = Number(record.attempts || 0);
 
@@ -137,16 +211,23 @@ function processEmailQueue() {
       setCells_(sheet, entry.row, {
         status: 'sent',
         sentAt: new Date(),
+        lastAttemptAt: new Date(),
         lastError: '',
       });
-
       sent++;
     } catch (err) {
       const next = attempts + 1;
+      const failed = next >= 3;
+      const delayMinutes = next === 1 ? 5 : 30;
+      const retryAt = failed
+        ? new Date()
+        : new Date(Date.now() + delayMinutes * 60 * 1000);
 
       setCells_(sheet, entry.row, {
         attempts: next,
-        status: next >= 3 ? 'failed' : 'pending',
+        status: failed ? 'failed' : 'pending',
+        sendAfter: retryAt,
+        lastAttemptAt: new Date(),
         lastError: String(err).slice(0, 500),
       });
     }
@@ -194,7 +275,13 @@ function promoteNextWaitlistedUnlocked_(sheet, reason) {
   next.record.checkedIn = false;
   next.record.checkedInAt = '';
 
-  updateRegistrationCountersForTransition_('waitlisted', 'confirmed', false, false, { lockHeld: true });
+  updateRegistrationCountersForTransition_(
+    'waitlisted',
+    'confirmed',
+    false,
+    false,
+    { lockHeld: true }
+  );
   invalidateRegistrationStatusCache_();
 
   logAudit_(
@@ -212,17 +299,19 @@ function promoteNextWaitlistedUnlocked_(sheet, reason) {
 
 function promoteNextWaitlisted() {
   return withAdminLock_(function () {
-    return promoteNextWaitlistedUnlocked_(getSheet_(), 'Manual waitlist promotion.');
+    return promoteNextWaitlistedUnlocked_(
+      getSheet_(),
+      'Manual waitlist promotion.'
+    );
   });
 }
 
 function checkCapacityNotifications_() {
   const config = getEventConfig_();
   const counts = getRegistrationCounters_();
-
   if (!config.maxRegistrations) return;
 
-  const percentage = counts.registered / config.maxRegistrations * 100;
+  const percentage = (counts.registered / config.maxRegistrations) * 100;
 
   [80, 90, 100].forEach(function (threshold) {
     const key = 'CAPACITY_NOTIFICATION_' + threshold;
@@ -236,7 +325,6 @@ function checkCapacityNotifications_() {
         'DETI+ capacity ' + threshold + '%',
         counts.registered + '/' + config.maxRegistrations + ' confirmed registrations.'
       );
-
       PropertiesService.getScriptProperties().setProperty(key, '1');
     }
   });
@@ -273,7 +361,6 @@ function exportRowsCsv_(name, rows, extraHeader) {
   const lines = [header.map(esc).join(',')].concat(
     rows.map(function (entry, index) {
       const r = entry.record;
-
       return (extraHeader ? [index + 1] : [])
         .concat([
           r.registrationId,
@@ -296,7 +383,9 @@ function exportRowsCsv_(name, rows, extraHeader) {
   );
 
   const cvFolder = DriveApp.getFolderById(prop_('CV_FOLDER_ID'));
-  const folder = cvFolder.getParents().hasNext() ? cvFolder.getParents().next() : DriveApp.getRootFolder();
+  const folder = cvFolder.getParents().hasNext()
+    ? cvFolder.getParents().next()
+    : DriveApp.getRootFolder();
   const exports = folder.getFoldersByName('DETI+ Exports');
   const exportFolder = exports.hasNext() ? exports.next() : folder.createFolder('DETI+ Exports');
 
@@ -356,7 +445,6 @@ function exportCvIndexCsv() {
   const rows = readRecords_(getSheet_()).filter(function (entry) {
     return entry.record.cvFileId;
   });
-
   return exportRowsCsv_('cv-index', rows);
 }
 
@@ -426,12 +514,27 @@ function ensureTimeTrigger_(handler, minutes) {
   }
 }
 
+function ensureHourlyTrigger_(handler) {
+  const triggers = ScriptApp.getProjectTriggers().filter(function (trigger) {
+    return trigger.getHandlerFunction() === handler;
+  });
+
+  triggers.slice(1).forEach(function (trigger) {
+    ScriptApp.deleteTrigger(trigger);
+  });
+
+  if (!triggers.length) {
+    ScriptApp.newTrigger(handler).timeBased().everyHours(1).create();
+  }
+}
+
 function installOperationalTriggers() {
   ensureAdminEditTrigger_();
   ensureRegistrationEditTrigger_();
   ensureSettingsEditTrigger_();
   ensureTimeTrigger_('processEmailQueue', 5);
   ensureTimeTrigger_('refreshControlCenterScheduled_', 15);
+  ensureHourlyTrigger_('scheduleParticipantCommunications');
 
   const existing = ScriptApp.getProjectTriggers().filter(function (trigger) {
     return trigger.getHandlerFunction() === 'runDataRetention';
@@ -455,28 +558,17 @@ function refreshControlCenterScheduled_() {
  * Registration, Settings and Admin are intentionally kept editable.
  */
 function applyOperationalProtections() {
-  const editableSheets = [
-    getSheet_(),
-    getSettingsSheet_(),
-    getOrCreateAdminSheet_(),
-  ];
-
+  const editableSheets = [getSheet_(), getSettingsSheet_(), getOrCreateAdminSheet_()];
   editableSheets.forEach(function (sheet) {
     removeAllProtections_(sheet);
   });
 
-  const warningOnlySheets = [
-    getAuditSheet_(),
-    getEmailQueueSheet_(),
-  ];
-
+  const warningOnlySheets = [getAuditSheet_(), getEmailQueueSheet_()];
   warningOnlySheets.forEach(function (sheet) {
     removeAllProtections_(sheet);
     sheet.protect().setWarningOnly(true);
   });
 
-  // Dashboard/statistics are generated, but warning-only protection created
-  // confusion in day-to-day use. Keep them unprotected and rebuildable.
   if (typeof DASHBOARD_SHEET_NAME !== 'undefined') {
     removeAllProtections_(getOrCreateSheet_(DASHBOARD_SHEET_NAME));
   }

@@ -1,19 +1,13 @@
-// One-off generator for the static brand images consumed by Next's file
-// conventions (app/icon.png, app/opengraph-image.png).
-//
-// These are committed to the repo on purpose: the dynamic `next/og` route
-// variants emit extensionless files under `output: "export"`, which GitHub
-// Pages serves with the wrong Content-Type, and the generated <link rel="icon">
-// href drops the configured basePath.
+// One-off generator for static DETI+ brand images consumed by Next and email.
 //
 // Run with: node scripts/generate-brand-images.mjs
 import { ImageResponse } from "next/og.js";
 import { createElement as h } from "react";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const BLACK = "#000000";
 const WHITE = "#ffffff";
-const CYAN = "#99ffff"; // hsl(180 100% 80%) — the --accent token
+const CYAN = "#99ffff"; // hsl(180 100% 80%) — the site accent token
 
 const architype = await readFile("public/fonts/Architype-Stedelijk.ttf");
 
@@ -23,6 +17,8 @@ async function render(element, options, outPath) {
   await writeFile(outPath, buffer);
   console.log(`${outPath} — ${buffer.length} bytes`);
 }
+
+await mkdir("public/email", { recursive: true });
 
 const ogSize = { width: 1200, height: 630 };
 
@@ -107,3 +103,63 @@ const icon = (px) =>
 
 await render(icon(64), { width: 64, height: 64 }, "app/icon.png");
 await render(icon(180), { width: 180, height: 180 }, "app/apple-icon.png");
+
+// Email logo. It is rendered with the real Architype font so the visual mark is
+// exact even in clients such as Gmail/Outlook that may ignore web fonts.
+await render(
+  h(
+    "div",
+    {
+      style: {
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        background: "transparent",
+        fontFamily: "Architype",
+      },
+    },
+    h(
+      "span",
+      {
+        style: {
+          fontSize: 126,
+          lineHeight: 1,
+          color: WHITE,
+        },
+      },
+      "deti",
+    ),
+    h(
+      "span",
+      {
+        style: {
+          fontSize: 126,
+          lineHeight: 1,
+          color: CYAN,
+          marginLeft: 7,
+        },
+      },
+      "+",
+    ),
+    h(
+      "div",
+      {
+        style: {
+          display: "flex",
+          gap: 10,
+          marginLeft: 32,
+          alignItems: "center",
+        },
+      },
+      h("div", { style: { width: 48, height: 48, background: WHITE } }),
+      h("div", { style: { width: 48, height: 48, background: CYAN } }),
+    ),
+  ),
+  {
+    width: 600,
+    height: 190,
+    fonts: [{ name: "Architype", data: architype, style: "normal", weight: 400 }],
+  },
+  "public/email/deti-plus-logo.png",
+);

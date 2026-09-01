@@ -1,28 +1,19 @@
 /**
  * DETI+ 2026 - administration console.
  *
- * Full CRUD over registrations:
- * - Create: manual registration from the editor
- * - Read: global/field-specific search and participant details
- * - Update: edit participant fields and save
- * - Delete: permanent GDPR-aware deletion
- *
- * Existing operational actions (magic link, cancel/restore, waitlist, check-in)
- * are preserved.
+ * Full CRUD over registrations plus operational actions and participant
+ * communication hooks for relevant registration-state transitions.
  */
 
 const ADMIN_SHEET_NAME = 'Admin';
-
 const ADMIN_SEARCH_CELL = 'B4';
 const ADMIN_SEARCH_FIELD_CELL = 'B5';
 const ADMIN_SELECTED_ID_CELL = 'B7';
-
 const ADMIN_EDITOR_FIRST_ROW = 5;
 const ADMIN_EDITOR_VALUE_COLUMN = 11; // K
 const ADMIN_ACTION_CELL = 'K18';
 const ADMIN_CONFIRM_CELL = 'K19';
 const ADMIN_RESULT_CELL = 'J22';
-
 const ADMIN_RESULTS_HEADER_ROW = 10;
 const ADMIN_RESULTS_FIRST_ROW = 11;
 const ADMIN_RESULTS_MAX = 50;
@@ -80,14 +71,13 @@ const ADMIN_EDITOR_FIELDS = [
 ];
 
 // -----------------------------------------------------------------------------
-// Initialization
+// Initialization / menu
 // -----------------------------------------------------------------------------
 
 function initializeOperations() {
   if (typeof migrateSystem === 'function') migrateSystem();
 
   const registrationSheet = ensureRegistrationSheetSchema_();
-
   getSettingsSheet_();
   getAuditSheet_();
   initializeAdminSheet_();
@@ -116,6 +106,9 @@ function onOpen() {
     .addItem('Verificar sistema', 'runHealthCheck')
     .addSeparator()
     .addItem('Promover próximo da lista de espera', 'promoteNextWaitlisted')
+    .addSeparator()
+    .addItem('Agendar comunicações', 'scheduleParticipantCommunications')
+    .addItem('Enviar preview de email', 'sendParticipantEmailPreview')
     .addItem('Processar fila de emails', 'processEmailQueue')
     .addSeparator()
     .addItem('Exportar participantes', 'exportParticipantsCsv')
@@ -142,7 +135,6 @@ function formatSettingsSheetMenu_() {
 function initializeAdminSheet_() {
   const ss = getSpreadsheet_();
   let sheet = ss.getSheetByName(ADMIN_SHEET_NAME);
-
   if (!sheet) sheet = ss.insertSheet(ADMIN_SHEET_NAME);
 
   sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).breakApart();
@@ -150,15 +142,15 @@ function initializeAdminSheet_() {
   ensureSheetSize_(sheet, 70, 12);
   applyDetiSheetBase_(sheet, DETI_SHEET_THEME.accent);
 
-  // Main widths
-  [150, 250, 110, 110, 110, 130, 130, 120, 30, 180, 260, 30].forEach(function (width, index) {
-    sheet.setColumnWidth(index + 1, width);
-  });
+  [150, 250, 110, 110, 110, 130, 130, 120, 30, 180, 260, 30].forEach(
+    function (width, index) { sheet.setColumnWidth(index + 1, width); }
+  );
 
   sheet.getRange('A1:H1').merge();
   styleDetiLogoCell_(sheet.getRange('A1:H1'));
 
-  sheet.getRange('A2:H2')
+  sheet
+    .getRange('A2:H2')
     .merge()
     .setValue('Administração de inscrições')
     .setBackground(DETI_SHEET_THEME.panel)
@@ -167,7 +159,8 @@ function initializeAdminSheet_() {
     .setFontWeight('bold')
     .setFontSize(15);
 
-  sheet.getRange('A3:H3')
+  sheet
+    .getRange('A3:H3')
     .merge()
     .setValue('Pesquisa, seleção e gestão completa dos participantes. Pesquisa por qualquer campo.')
     .setBackground(DETI_SHEET_THEME.panel)
@@ -175,12 +168,14 @@ function initializeAdminSheet_() {
     .setFontFamily(DETI_SHEET_THEME.font);
 
   sheet.getRange('A4').setValue('Pesquisar').setFontWeight('bold');
-  sheet.getRange(ADMIN_SEARCH_CELL)
+  sheet
+    .getRange(ADMIN_SEARCH_CELL)
     .setBackground(DETI_SHEET_THEME.input)
     .setNote('Pode pesquisar por nome, email, ID, telemóvel, curso, ano, estado ou check-in.');
 
   sheet.getRange('A5').setValue('Pesquisar em').setFontWeight('bold');
-  sheet.getRange(ADMIN_SEARCH_FIELD_CELL)
+  sheet
+    .getRange(ADMIN_SEARCH_FIELD_CELL)
     .setDataValidation(
       SpreadsheetApp.newDataValidation()
         .requireValueInList(ADMIN_SEARCH_FIELDS, true)
@@ -191,28 +186,31 @@ function initializeAdminSheet_() {
     .setBackground(DETI_SHEET_THEME.input);
 
   sheet.getRange('A7').setValue('Participante selecionado').setFontWeight('bold');
-  sheet.getRange(ADMIN_SELECTED_ID_CELL)
+  sheet
+    .getRange(ADMIN_SELECTED_ID_CELL)
     .setBackground(DETI_SHEET_THEME.input)
     .setNote('Escolha um ID resultante da pesquisa ou introduza-o diretamente.');
 
-  sheet.getRange('A9:H9')
+  sheet
+    .getRange('A9:H9')
     .merge()
     .setValue('Resultados')
     .setBackground(DETI_SHEET_THEME.panelAlt)
     .setFontColor(DETI_SHEET_THEME.white)
     .setFontWeight('bold');
 
-  sheet.getRange(ADMIN_RESULTS_HEADER_ROW, 1, 1, 8)
+  sheet
+    .getRange(ADMIN_RESULTS_HEADER_ROW, 1, 1, 8)
     .setValues([['ID', 'Nome', 'Email', 'Curso', 'Ano', 'Estado', 'CV', 'Check-in']])
     .setBackground(DETI_SHEET_THEME.black)
     .setFontColor(DETI_SHEET_THEME.white)
     .setFontWeight('bold');
 
-  // Right-side editor
   sheet.getRange('J1:K1').merge();
   styleDetiLogoCell_(sheet.getRange('J1:K1'));
 
-  sheet.getRange('J2:K2')
+  sheet
+    .getRange('J2:K2')
     .merge()
     .setValue('Ficha do participante')
     .setBackground(DETI_SHEET_THEME.panel)
@@ -221,24 +219,21 @@ function initializeAdminSheet_() {
     .setFontSize(14);
 
   const labels = ADMIN_EDITOR_FIELDS.map(function (field) { return [field.label]; });
-  sheet.getRange(ADMIN_EDITOR_FIRST_ROW, 10, labels.length, 1)
+  sheet
+    .getRange(ADMIN_EDITOR_FIRST_ROW, 10, labels.length, 1)
     .setValues(labels)
     .setFontWeight('bold')
     .setFontColor('#525252');
 
-  sheet.getRange(ADMIN_EDITOR_FIRST_ROW, ADMIN_EDITOR_VALUE_COLUMN, labels.length, 1)
+  sheet
+    .getRange(ADMIN_EDITOR_FIRST_ROW, ADMIN_EDITOR_VALUE_COLUMN, labels.length, 1)
     .setBackground(DETI_SHEET_THEME.input);
 
-  // Visual distinction between editable and read-only editor cells.
   ADMIN_EDITOR_FIELDS.forEach(function (field, index) {
     const cell = sheet.getRange(ADMIN_EDITOR_FIRST_ROW + index, ADMIN_EDITOR_VALUE_COLUMN);
-
-    if (!field.editable) {
-      cell.setBackground('#f3f4f6').setFontColor('#737373');
-    }
+    if (!field.editable) cell.setBackground('#f3f4f6').setFontColor('#737373');
   });
 
-  // Data validation for editable status/year.
   getAdminEditorCell_('registrationStatus').setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireValueInList(['confirmed', 'waitlisted', 'cancelled'], true)
@@ -254,7 +249,8 @@ function initializeAdminSheet_() {
   );
 
   sheet.getRange('J18').setValue('Ação').setFontWeight('bold');
-  sheet.getRange(ADMIN_ACTION_CELL)
+  sheet
+    .getRange(ADMIN_ACTION_CELL)
     .setDataValidation(
       SpreadsheetApp.newDataValidation()
         .requireValueInList(ADMIN_ACTION_LABELS, true)
@@ -266,19 +262,22 @@ function initializeAdminSheet_() {
   sheet.getRange('J19').setValue('Confirmar').setFontWeight('bold');
   sheet.getRange(ADMIN_CONFIRM_CELL).insertCheckboxes();
 
-  sheet.getRange('J21:K21')
+  sheet
+    .getRange('J21:K21')
     .merge()
     .setValue('Resultado')
     .setBackground(DETI_SHEET_THEME.panelAlt)
     .setFontColor(DETI_SHEET_THEME.white)
     .setFontWeight('bold');
 
-  sheet.getRange(ADMIN_RESULT_CELL + ':K24')
+  sheet
+    .getRange(ADMIN_RESULT_CELL + ':K24')
     .merge()
     .setWrap(true)
     .setVerticalAlignment('top');
 
-  sheet.getRange('J26:K26')
+  sheet
+    .getRange('J26:K26')
     .merge()
     .setValue('Estado do sistema')
     .setBackground(DETI_SHEET_THEME.panelAlt)
@@ -287,7 +286,6 @@ function initializeAdminSheet_() {
 
   sheet.setFrozenRows(3);
   refreshAdminSearch_();
-
   return sheet;
 }
 
@@ -295,52 +293,32 @@ function initializeAdminSheet_() {
 // Triggers
 // -----------------------------------------------------------------------------
 
-function ensureAdminEditTrigger_() {
-  ensureSpreadsheetTrigger_('handleAdminEdit_');
-}
-
-function ensureRegistrationEditTrigger_() {
-  ensureSpreadsheetTrigger_('handleRegistrationEdit_');
-}
-
-function ensureSettingsEditTrigger_() {
-  ensureSpreadsheetTrigger_('handleSettingsEdit_');
-}
+function ensureAdminEditTrigger_() { ensureSpreadsheetTrigger_('handleAdminEdit_'); }
+function ensureRegistrationEditTrigger_() { ensureSpreadsheetTrigger_('handleRegistrationEdit_'); }
+function ensureSettingsEditTrigger_() { ensureSpreadsheetTrigger_('handleSettingsEdit_'); }
 
 function ensureSpreadsheetTrigger_(handler) {
   const ss = getSpreadsheet_();
-
   const exists = ScriptApp.getProjectTriggers().some(function (trigger) {
     return trigger.getHandlerFunction() === handler;
   });
-
-  if (exists) return;
-
-  ScriptApp.newTrigger(handler).forSpreadsheet(ss).onEdit().create();
+  if (!exists) ScriptApp.newTrigger(handler).forSpreadsheet(ss).onEdit().create();
 }
-
-// -----------------------------------------------------------------------------
-// Admin edit handling
-// -----------------------------------------------------------------------------
 
 function handleAdminEdit_(e) {
   if (!e || !e.range) return;
-
   const sheet = e.range.getSheet();
   if (sheet.getName() !== ADMIN_SHEET_NAME) return;
 
   const a1 = e.range.getA1Notation();
-
   if (a1 === ADMIN_SEARCH_CELL || a1 === ADMIN_SEARCH_FIELD_CELL) {
     refreshAdminSearch_();
     return;
   }
-
   if (a1 === ADMIN_SELECTED_ID_CELL) {
     loadAdminParticipantById_();
     return;
   }
-
   if (a1 !== ADMIN_CONFIRM_CELL || e.value !== 'TRUE') return;
 
   try {
@@ -350,10 +328,6 @@ function handleAdminEdit_(e) {
   }
 }
 
-// -----------------------------------------------------------------------------
-// Registration sheet edit
-// -----------------------------------------------------------------------------
-
 function handleSettingsEdit_(e) {
   if (!e || !e.range || e.range.getSheet().getName() !== SETTINGS_SHEET_NAME) return;
   invalidateEventConfigCache_();
@@ -362,7 +336,6 @@ function handleSettingsEdit_(e) {
 
 function handleRegistrationEdit_(e) {
   if (!e || !e.range) return;
-
   const sheet = e.range.getSheet();
   if (sheet.getName() !== SHEET_NAME) return;
 
@@ -371,10 +344,7 @@ function handleRegistrationEdit_(e) {
   const notesColumn = map.notes;
 
   if (notesColumn && e.range.getColumn() === notesColumn) return;
-
-  if (!checkedInColumn || e.range.getColumn() !== checkedInColumn || e.range.getRow() < 2) {
-    return;
-  }
+  if (!checkedInColumn || e.range.getColumn() !== checkedInColumn || e.range.getRow() < 2) return;
 
   const rows = readRecords_(sheet);
   const entry = rows.find(function (item) { return item.row === e.range.getRow(); });
@@ -393,7 +363,6 @@ function handleRegistrationEdit_(e) {
 
   if (checked) {
     const now = new Date();
-
     setCells_(sheet, entry.row, {
       checkedIn: true,
       checkedInAt: now,
@@ -446,15 +415,13 @@ function handleRegistrationEdit_(e) {
 }
 
 // -----------------------------------------------------------------------------
-// Search / Read
+// Search / editor
 // -----------------------------------------------------------------------------
 
 function refreshAdminSearch_() {
   const admin = getOrCreateAdminSheet_();
-
   const query = String(admin.getRange(ADMIN_SEARCH_CELL).getValue() || '').trim();
   const field = String(admin.getRange(ADMIN_SEARCH_FIELD_CELL).getValue() || 'Tudo').trim();
-
   const matches = searchAdminParticipants_(query, field);
   const outputRange = admin.getRange(ADMIN_RESULTS_FIRST_ROW, 1, ADMIN_RESULTS_MAX, 8);
 
@@ -462,7 +429,6 @@ function refreshAdminSearch_() {
 
   const values = matches.slice(0, ADMIN_RESULTS_MAX).map(function (entry) {
     const record = entry.record;
-
     return [
       record.registrationId || '',
       record.name || '',
@@ -480,13 +446,13 @@ function refreshAdminSearch_() {
 
     for (let index = 0; index < values.length; index++) {
       const row = ADMIN_RESULTS_FIRST_ROW + index;
-      admin.getRange(row, 1, 1, 8)
+      admin
+        .getRange(row, 1, 1, 8)
         .setBackground(row % 2 === 0 ? DETI_SHEET_THEME.bodyAlt : DETI_SHEET_THEME.body)
         .setFontFamily(DETI_SHEET_THEME.font);
     }
 
     const ids = values.map(function (row) { return row[0]; }).filter(Boolean);
-
     if (ids.length) {
       admin.getRange(ADMIN_SELECTED_ID_CELL).setDataValidation(
         SpreadsheetApp.newDataValidation()
@@ -497,11 +463,12 @@ function refreshAdminSearch_() {
     }
   }
 
-  if (!query) {
-    setAdminResult_('A mostrar as inscrições mais recentes. Use a pesquisa para filtrar.', false);
-  } else {
-    setAdminResult_(values.length + ' resultado(s) encontrado(s).', false);
-  }
+  setAdminResult_(
+    !query
+      ? 'A mostrar as inscrições mais recentes. Use a pesquisa para filtrar.'
+      : values.length + ' resultado(s) encontrado(s).',
+    false
+  );
 
   return matches;
 }
@@ -513,9 +480,7 @@ function searchAdminParticipants_(query, field) {
   const filtered = rows.filter(function (entry) {
     if (!normalizedQuery) return true;
 
-    const record = entry.record;
-    const values = adminSearchValues_(record);
-
+    const values = adminSearchValues_(entry.record);
     if (field === 'Tudo') {
       return Object.keys(values).some(function (key) {
         return normalizeAdminSearchText_(values[key]).indexOf(normalizedQuery) !== -1;
@@ -549,17 +514,16 @@ function adminSearchValues_(record) {
 
 function adminSearchFieldKey_(field) {
   const map = {
-    'ID': 'id',
-    'Nome': 'name',
-    'Email': 'email',
-    'Telemóvel': 'mobile',
-    'Curso': 'course',
-    'Ano': 'year',
-    'Estado': 'status',
+    ID: 'id',
+    Nome: 'name',
+    Email: 'email',
+    Telemóvel: 'mobile',
+    Curso: 'course',
+    Ano: 'year',
+    Estado: 'status',
     'Estado do CV': 'cv',
     'Check-in': 'checkin',
   };
-
   return map[field] || 'email';
 }
 
@@ -574,13 +538,10 @@ function normalizeAdminSearchText_(value) {
 function loadAdminParticipantById_() {
   const admin = getOrCreateAdminSheet_();
   const id = String(admin.getRange(ADMIN_SELECTED_ID_CELL).getValue() || '').trim();
-
   clearAdminEditor_(admin);
-
   if (!id) return null;
 
   const found = findRowByRegistrationId_(getSheet_(), id);
-
   if (!found) {
     setAdminResult_('Participante não encontrado.', true);
     return null;
@@ -588,17 +549,12 @@ function loadAdminParticipantById_() {
 
   fillAdminEditor_(found.record);
   setAdminResult_('Participante carregado.', false);
-
   return found;
 }
 
-/**
- * Compatibility helper retained for callers that still use email.
- */
 function loadAdminParticipant_() {
   const admin = getOrCreateAdminSheet_();
   const email = normalizeEmail_(admin.getRange(ADMIN_SEARCH_CELL).getValue());
-
   if (!email) return null;
 
   const found = findRowByEmail_(getSheet_(), email);
@@ -617,12 +573,10 @@ function fillAdminEditor_(record) {
 
   const values = ADMIN_EDITOR_FIELDS.map(function (field) {
     let value = record[field.key];
-
     if (field.key === 'registrationStatus') value = normalizedRegistrationStatus_(record);
     if (field.key === 'cvStatus') value = normalizedCvStatus_(record);
     if (field.key === 'checkedIn') value = isRecordCheckedIn_(record) ? 'Sim' : 'Não';
     if (field.key === 'course') value = record.course || record.curse || '';
-
     return [value == null ? '' : value];
   });
 
@@ -644,10 +598,12 @@ function clearAdminEditor_(sheet) {
 function getAdminEditorCell_(key) {
   for (let i = 0; i < ADMIN_EDITOR_FIELDS.length; i++) {
     if (ADMIN_EDITOR_FIELDS[i].key === key) {
-      return getOrCreateAdminSheet_().getRange(ADMIN_EDITOR_FIRST_ROW + i, ADMIN_EDITOR_VALUE_COLUMN);
+      return getOrCreateAdminSheet_().getRange(
+        ADMIN_EDITOR_FIRST_ROW + i,
+        ADMIN_EDITOR_VALUE_COLUMN
+      );
     }
   }
-
   throw new Error('Unknown admin editor field: ' + key);
 }
 
@@ -658,11 +614,9 @@ function getAdminEditorValues_() {
     .getValues();
 
   const result = {};
-
   ADMIN_EDITOR_FIELDS.forEach(function (field, index) {
     result[field.key] = values[index][0];
   });
-
   return result;
 }
 
@@ -692,12 +646,10 @@ function executeAdminAction_() {
     case 'CREATE_REGISTRATION':
       result = adminCreateRegistration_();
       break;
-
     case 'SAVE_CHANGES':
       result = adminSaveRegistration_(selectedId);
       break;
-
-    default:
+    default: {
       if (!selectedId) {
         setAdminResult_('Selecione primeiro um participante.', true);
         return;
@@ -708,12 +660,11 @@ function executeAdminAction_() {
         setAdminResult_('Participante não encontrado.', true);
         return;
       }
-
       result = executeExistingParticipantAction_(action, found.record.email);
+    }
   }
 
   setAdminResult_(result.message, !result.ok);
-
   refreshAdminSearch_();
 
   if (result.ok && action === 'CREATE_REGISTRATION' && result.registrationId) {
@@ -732,22 +683,14 @@ function executeAdminAction_() {
 
 function executeExistingParticipantAction_(action, email) {
   switch (action) {
-    case 'RESEND_MAGIC_LINK':
-      return adminResendMagicLink_(email);
-    case 'CANCEL_REGISTRATION':
-      return adminCancelRegistration_(email);
-    case 'RESTORE_REGISTRATION':
-      return adminRestoreRegistration_(email);
-    case 'PROMOTE_WAITLIST':
-      return adminPromoteWaitlist_(email);
-    case 'CHECK_IN':
-      return adminCheckIn_(email);
-    case 'UNDO_CHECK_IN':
-      return adminUndoCheckIn_(email);
-    case 'DELETE_PARTICIPANT_DATA':
-      return adminDeleteParticipantData_(email);
-    default:
-      return adminError_('Ação não suportada.');
+    case 'RESEND_MAGIC_LINK': return adminResendMagicLink_(email);
+    case 'CANCEL_REGISTRATION': return adminCancelRegistration_(email);
+    case 'RESTORE_REGISTRATION': return adminRestoreRegistration_(email);
+    case 'PROMOTE_WAITLIST': return adminPromoteWaitlist_(email);
+    case 'CHECK_IN': return adminCheckIn_(email);
+    case 'UNDO_CHECK_IN': return adminUndoCheckIn_(email);
+    case 'DELETE_PARTICIPANT_DATA': return adminDeleteParticipantData_(email);
+    default: return adminError_('Ação não suportada.');
   }
 }
 
@@ -771,7 +714,6 @@ function adminCreateRegistration_() {
     if (!name || !email || !course || !year) {
       return adminError_('Preencha Nome, Email, Curso e Ano antes de criar a inscrição.');
     }
-
     if (findRowByEmail_(sheet, email)) {
       return adminError_('Já existe uma inscrição com este email.');
     }
@@ -783,7 +725,6 @@ function adminCreateRegistration_() {
     if (status === 'confirmed') {
       const config = getEventConfig_();
       const counts = getRegistrationCounters_({ lockHeld: true });
-
       if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
         return adminError_('A lotação está cheia. Crie a inscrição como waitlisted ou liberte uma vaga.');
       }
@@ -791,7 +732,6 @@ function adminCreateRegistration_() {
 
     const now = new Date();
     const registrationId = createNextRegistrationId_(sheet);
-
     const record = {
       registrationId: registrationId,
       registeredAt: now,
@@ -831,6 +771,14 @@ function adminCreateRegistration_() {
       getAdminActor_()
     );
 
+    if (status !== 'cancelled') {
+      sendMagicLink_(record, {
+        returning: false,
+        registrationStatus: status,
+        cvUploaded: false,
+      });
+    }
+
     return {
       ok: true,
       message: 'Inscrição criada com sucesso.',
@@ -845,7 +793,6 @@ function adminSaveRegistration_(registrationId) {
   return withAdminLock_(function () {
     const sheet = getSheet_();
     const found = findRowByRegistrationId_(sheet, registrationId);
-
     if (!found) return adminError_('Participante não encontrado.');
 
     const editor = getAdminEditorValues_();
@@ -859,7 +806,6 @@ function adminSaveRegistration_(registrationId) {
 
     if (nextEmail !== previousEmail) {
       const duplicate = findRowByEmail_(sheet, nextEmail);
-
       if (duplicate && duplicate.row !== found.row) {
         return adminError_('Já existe outra inscrição com esse email.');
       }
@@ -875,14 +821,12 @@ function adminSaveRegistration_(registrationId) {
     if (previousStatus !== 'confirmed' && nextStatus === 'confirmed') {
       const config = getEventConfig_();
       const counts = getRegistrationCounters_({ lockHeld: true });
-
       if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
         return adminError_('Não existe uma vaga confirmada disponível.');
       }
     }
 
     const course = String(editor.course || '').trim();
-
     const updates = {
       name: String(editor.name || '').trim(),
       email: nextEmail,
@@ -891,9 +835,7 @@ function adminSaveRegistration_(registrationId) {
       curse: course,
       year: String(editor.year || '').trim(),
       registrationStatus: nextStatus,
-      cancelledAt: nextStatus === 'cancelled'
-        ? (current.cancelledAt || new Date())
-        : '',
+      cancelledAt: nextStatus === 'cancelled' ? (current.cancelledAt || new Date()) : '',
       checkedIn: nextStatus === 'cancelled' ? false : current.checkedIn,
       checkedInAt: nextStatus === 'cancelled' ? '' : current.checkedInAt,
       notes: String(editor.notes || '').trim(),
@@ -921,12 +863,23 @@ function adminSaveRegistration_(registrationId) {
       getAdminActor_()
     );
 
+    if (previousStatus !== nextStatus) {
+      if (nextStatus === 'cancelled') {
+        sendCancellationEmail_(auditRecord);
+      } else if (previousStatus === 'cancelled') {
+        sendRestorationEmail_(auditRecord, nextStatus);
+      } else if (previousStatus === 'waitlisted' && nextStatus === 'confirmed') {
+        sendPromotionEmail_(auditRecord);
+      } else if (previousStatus === 'confirmed' && nextStatus === 'waitlisted') {
+        sendMovedToWaitlistEmail_(auditRecord);
+      }
+    }
+
     if (previousStatus === 'confirmed' && nextStatus === 'cancelled') {
       promoteNextWaitlistedUnlocked_(sheet, 'Place released by administrative update.');
     }
 
     checkCapacityNotifications_();
-
     return adminSuccess_('Alterações guardadas.');
   });
 }
@@ -940,7 +893,6 @@ function adminResendMagicLink_(email) {
   if (!found) return adminError_('Participante não encontrado.');
 
   const status = normalizedRegistrationStatus_(found.record);
-
   if (status === 'cancelled') {
     return adminError_('Inscrições canceladas não recebem magic links.');
   }
@@ -955,7 +907,6 @@ function adminResendMagicLink_(email) {
     'Magic link resent by administrator.',
     getAdminActor_()
   );
-
   return adminSuccess_('Magic link enviado.');
 }
 
@@ -963,13 +914,12 @@ function adminCancelRegistration_(email) {
   return withAdminLock_(function () {
     const sheet = getSheet_();
     const found = findRowByEmail_(sheet, email);
-
     if (!found) return adminError_('Participante não encontrado.');
 
     const previousStatus = normalizedRegistrationStatus_(found.record);
     if (previousStatus === 'cancelled') return adminError_('A inscrição já está cancelada.');
-    const wasCheckedIn = isRecordCheckedIn_(found.record);
 
+    const wasCheckedIn = isRecordCheckedIn_(found.record);
     const now = new Date();
 
     setCells_(sheet, found.row, {
@@ -983,8 +933,16 @@ function adminCancelRegistration_(email) {
     found.record.registrationStatus = 'cancelled';
     found.record.cancelledAt = now;
     found.record.checkedIn = false;
+    found.record.checkedInAt = '';
+    found.record.state = 'cancelled';
 
-    updateRegistrationCountersForTransition_(previousStatus, 'cancelled', wasCheckedIn, false, { lockHeld: true });
+    updateRegistrationCountersForTransition_(
+      previousStatus,
+      'cancelled',
+      wasCheckedIn,
+      false,
+      { lockHeld: true }
+    );
     invalidateRegistrationStatusCache_();
 
     logAudit_(
@@ -995,6 +953,8 @@ function adminCancelRegistration_(email) {
       'Registration cancelled by administrator.',
       getAdminActor_()
     );
+
+    sendCancellationEmail_(found.record);
 
     if (previousStatus === 'confirmed') {
       promoteNextWaitlistedUnlocked_(sheet, 'Place released by cancellation.');
@@ -1009,7 +969,6 @@ function adminRestoreRegistration_(email) {
   return withAdminLock_(function () {
     const sheet = getSheet_();
     const found = findRowByEmail_(sheet, email);
-
     if (!found) return adminError_('Participante não encontrado.');
 
     const previousStatus = normalizedRegistrationStatus_(found.record);
@@ -1019,23 +978,19 @@ function adminRestoreRegistration_(email) {
 
     const config = getEventConfig_();
     const counts = getRegistrationCounters_({ lockHeld: true });
-
     const nextStatus =
       config.maxRegistrations === 0 || counts.registered < config.maxRegistrations
         ? 'confirmed'
-        : (
-            config.waitlistEnabled &&
+        : config.waitlistEnabled &&
             (config.maxWaitlist === 0 || counts.waitlisted < config.maxWaitlist)
-              ? 'waitlisted'
-              : ''
-          );
+          ? 'waitlisted'
+          : '';
 
     if (!nextStatus) {
       return adminError_('Não existe vaga confirmada nem lugar disponível na lista de espera.');
     }
 
     const cvStatus = normalizedCvStatus_(found.record);
-
     setCells_(sheet, found.row, {
       registrationStatus: nextStatus,
       cancelledAt: '',
@@ -1050,10 +1005,16 @@ function adminRestoreRegistration_(email) {
     found.record.checkedInAt = '';
     found.record.state = legacyStateFor_(nextStatus, cvStatus);
 
-    updateRegistrationCountersForTransition_('cancelled', nextStatus, false, false, { lockHeld: true });
+    updateRegistrationCountersForTransition_(
+      'cancelled',
+      nextStatus,
+      false,
+      false,
+      { lockHeld: true }
+    );
     invalidateRegistrationStatusCache_();
 
-    sendMagicLink_(found.record, { returning: true, registrationStatus: nextStatus });
+    sendRestorationEmail_(found.record, nextStatus);
 
     logAudit_(
       'REGISTRATION_RESTORED',
@@ -1078,7 +1039,6 @@ function adminPromoteWaitlist_(email) {
   return withAdminLock_(function () {
     const sheet = getSheet_();
     const found = findRowByEmail_(sheet, email);
-
     if (!found) return adminError_('Participante não encontrado.');
 
     const previousStatus = normalizedRegistrationStatus_(found.record);
@@ -1088,13 +1048,11 @@ function adminPromoteWaitlist_(email) {
 
     const config = getEventConfig_();
     const counts = getRegistrationCounters_({ lockHeld: true });
-
     if (config.maxRegistrations > 0 && counts.registered >= config.maxRegistrations) {
       return adminError_('Não existe atualmente uma vaga confirmada.');
     }
 
     const cvStatus = normalizedCvStatus_(found.record);
-
     setCells_(sheet, found.row, {
       registrationStatus: 'confirmed',
       state: legacyStateFor_('confirmed', cvStatus),
@@ -1103,7 +1061,13 @@ function adminPromoteWaitlist_(email) {
     found.record.registrationStatus = 'confirmed';
     found.record.state = legacyStateFor_('confirmed', cvStatus);
 
-    updateRegistrationCountersForTransition_('waitlisted', 'confirmed', false, false, { lockHeld: true });
+    updateRegistrationCountersForTransition_(
+      'waitlisted',
+      'confirmed',
+      false,
+      false,
+      { lockHeld: true }
+    );
     invalidateRegistrationStatusCache_();
 
     sendPromotionEmail_(found.record);
@@ -1125,25 +1089,20 @@ function adminCheckIn_(email) {
   return withAdminLock_(function () {
     const sheet = getSheet_();
     const found = findRowByEmail_(sheet, email);
-
     if (!found) return adminError_('Participante não encontrado.');
 
     const previousStatus = normalizedRegistrationStatus_(found.record);
-
     if (previousStatus === 'cancelled') {
       return adminError_('Inscrições canceladas não podem fazer check-in.');
     }
-
     if (previousStatus === 'waitlisted') {
       return adminError_('Participantes em lista de espera têm de ser promovidos antes do check-in.');
     }
-
     if (isRecordCheckedIn_(found.record)) {
       return adminError_('O participante já fez check-in.');
     }
 
     const now = new Date();
-
     setCells_(sheet, found.row, {
       checkedIn: true,
       checkedInAt: now,
@@ -1175,12 +1134,10 @@ function adminUndoCheckIn_(email) {
   return withAdminLock_(function () {
     const sheet = getSheet_();
     const found = findRowByEmail_(sheet, email);
-
     if (!found) return adminError_('Participante não encontrado.');
     if (!isRecordCheckedIn_(found.record)) return adminError_('O participante não fez check-in.');
 
     const cvStatus = normalizedCvStatus_(found.record);
-
     setCells_(sheet, found.row, {
       checkedIn: false,
       checkedInAt: '',
@@ -1212,14 +1169,12 @@ function adminDeleteParticipantData_(email) {
   return withAdminLock_(function () {
     const sheet = getSheet_();
     const found = findRowByEmail_(sheet, email);
-
     if (!found) return adminError_('Participante não encontrado.');
 
     const record = found.record;
     const previousStatus = normalizedRegistrationStatus_(record);
     const wasConfirmed = previousStatus === 'confirmed';
     const wasCheckedIn = isRecordCheckedIn_(record);
-
     const auditRecord = {
       registrationId: record.registrationId || '',
       email: record.email || '',
@@ -1243,7 +1198,13 @@ function adminDeleteParticipantData_(email) {
     );
 
     sheet.deleteRow(found.row);
-    updateRegistrationCountersForTransition_(previousStatus, '', wasCheckedIn, false, { lockHeld: true });
+    updateRegistrationCountersForTransition_(
+      previousStatus,
+      '',
+      wasCheckedIn,
+      false,
+      { lockHeld: true }
+    );
     invalidateRegistrationStatusCache_();
 
     if (wasConfirmed) {
@@ -1270,10 +1231,9 @@ function runHealthCheck() {
     const sheet = getSheet_();
     const map = getHeaderMap_(sheet);
     const missing = HEADERS.filter(function (header) { return !map[header]; });
-
     results.push([
       missing.length === 0 ? '✓' : '✗',
-      missing.length === 0 ? 'Estrutura de inscrições' : ('Em falta: ' + missing.join(', ')),
+      missing.length === 0 ? 'Estrutura de inscrições' : 'Em falta: ' + missing.join(', '),
     ]);
   } catch (err) {
     results.push(['✗', 'Folha de inscrições']);
@@ -1284,6 +1244,18 @@ function runHealthCheck() {
     results.push(['✓', 'Configurações']);
   } catch (err) {
     results.push(['✗', 'Configurações']);
+  }
+
+  try {
+    const queue = getEmailQueueSheet_();
+    const map = getHeaderMap_(queue);
+    const missingQueue = EMAIL_QUEUE_HEADERS.filter(function (header) { return !map[header]; });
+    results.push([
+      missingQueue.length === 0 ? '✓' : '✗',
+      missingQueue.length === 0 ? 'Fila de emails' : 'Email Queue em falta: ' + missingQueue.join(', '),
+    ]);
+  } catch (err) {
+    results.push(['✗', 'Fila de emails']);
   }
 
   try {
@@ -1302,7 +1274,6 @@ function runHealthCheck() {
 
   try {
     const version = typeof getSchemaVersion_ === 'function' ? getSchemaVersion_() : 0;
-
     results.push([
       version === CURRENT_SCHEMA_VERSION ? '✓' : '⚠',
       'Schema v' + version + '/' + CURRENT_SCHEMA_VERSION,
@@ -1312,11 +1283,7 @@ function runHealthCheck() {
   }
 
   admin.getRange('J27:K40').clearContent();
-
-  if (results.length) {
-    admin.getRange(27, 10, results.length, 2).setValues(results);
-  }
-
+  if (results.length) admin.getRange(27, 10, results.length, 2).setValues(results);
   return results;
 }
 
@@ -1332,7 +1299,6 @@ function checkProperty_(results, key) {
 function withAdminLock_(callback) {
   const lock = LockService.getScriptLock();
   lock.waitLock(LOCK_TIMEOUT_MS);
-
   try {
     return callback();
   } finally {
@@ -1340,17 +1306,11 @@ function withAdminLock_(callback) {
   }
 }
 
-function adminSuccess_(message) {
-  return { ok: true, message: message };
-}
-
-function adminError_(message) {
-  return { ok: false, message: message };
-}
+function adminSuccess_(message) { return { ok: true, message: message }; }
+function adminError_(message) { return { ok: false, message: message }; }
 
 function setAdminResult_(message, error) {
   const range = getOrCreateAdminSheet_().getRange(ADMIN_RESULT_CELL + ':K24');
-
   range
     .setValue(message)
     .setBackground(error ? DETI_SHEET_THEME.red : DETI_SHEET_THEME.accentSoft)
