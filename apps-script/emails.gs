@@ -759,7 +759,14 @@ function sendParticipantTemplate_(templateKey, record, data, options) {
       skipDedupeLookup: Boolean(options.skipDedupeLookup),
     });
 
-    return queued !== false;
+    if (queued === false) return false;
+
+    // Transactional messages must not wait for the scheduled queue worker.
+    // If Gmail rejects the send, attemptQueuedEmail_ records the failure and
+    // leaves it pending for the normal retry flow.
+    attemptQueuedEmail_(queued.sheet, queued.row, queued.record);
+
+    return true;
   } catch (err) {
     console.warn('Could not queue participant email (' + templateKey + '): ' + err);
     return false;

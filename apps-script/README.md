@@ -142,8 +142,10 @@ run repeatedly without queueing the same campaign twice for the same person.
 
 ## Email queue and retries
 
-`processEmailQueue()` runs every 5 minutes and sends at most 30 messages per run
-while respecting the account's remaining daily quota.
+Transactional participant emails are attempted immediately after being placed in
+the durable queue. `processEmailQueue()` runs every 5 minutes only to send
+scheduled messages and retry failed sends, respecting the account's remaining
+daily quota.
 
 Failures retry with backoff:
 
