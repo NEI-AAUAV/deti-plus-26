@@ -135,7 +135,7 @@ const OTHER_YEARS = [
 function yearsForCourse(
   course:
   string,
-) {
+): readonly string[] {
   if (
     course.startsWith(
       "Bachelor's Degree",
