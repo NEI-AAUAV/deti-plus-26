@@ -76,7 +76,7 @@ export function Footer() {
         </div>
       </div>
 
-      <div className="relative mx-auto grid max-w-7xl gap-7 px-6 py-8 md:grid-cols-2 lg:grid-cols-[1.05fr_0.9fr_0.65fr_0.8fr] lg:gap-8">
+      <div className="relative mx-auto grid max-w-7xl gap-5 px-6 py-6 md:grid-cols-2 md:gap-7 md:py-8 lg:grid-cols-[1.05fr_0.9fr_0.65fr_0.8fr] lg:gap-8">
         <section>
           <div className="flex items-center gap-3">
             <div className="flex items-baseline">
@@ -100,14 +100,14 @@ export function Footer() {
             Universidade de Aveiro.
           </p>
 
-          <div className="mt-5 flex items-center gap-3 font-display text-[9px] uppercase tracking-[0.2em] text-accent">
+          <div className="mt-4 flex items-center gap-3 font-display text-[9px] uppercase tracking-[0.2em] text-accent md:mt-5">
             <span className="h-px w-9 bg-accent" aria-hidden="true" />
             career connections
             <span className="h-1.5 w-1.5 bg-accent" aria-hidden="true" />
             2026
           </div>
 
-          <div className="mt-5 flex flex-col gap-2 font-display text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="mt-4 flex flex-col gap-1.5 font-display text-[9px] uppercase tracking-[0.16em] text-muted-foreground md:mt-5 md:gap-2">
             <span className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 bg-accent" aria-hidden="true" />
               September 29 — October 1, 2026
@@ -120,23 +120,23 @@ export function Footer() {
         </section>
 
         <section>
-          <h2 className="mb-4 font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          <h2 className="mb-2 font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground md:mb-4">
             Organized by
           </h2>
 
-          <div className="space-y-2">
+          <div className="grid grid-cols-3 gap-2 md:block md:space-y-2">
             {organizers.map((organizer) => (
               <div
                 key={organizer.name}
-                className="flex h-14 w-full items-center justify-center"
+                className="flex h-16 w-full items-center justify-center md:h-14"
               >
                 <Image
                   src={organizer.logo}
                   alt={organizer.name}
                   width={180}
                   height={64}
-                  className={`mx-auto max-h-12 w-[180px] max-w-full object-contain object-center ${
-                    organizer.name === "NEI" ? "-translate-x-2" : ""
+                  className={`mx-auto max-h-14 w-full object-contain object-center md:max-h-12 md:w-[180px] ${
+                    organizer.name === "NEI" ? "md:-translate-x-2" : ""
                   }`}
                 />
               </div>
@@ -145,11 +145,11 @@ export function Footer() {
         </section>
 
         <nav aria-label="Footer navigation">
-          <h2 className="mb-4 font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          <h2 className="mb-2 font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground md:mb-4">
             DETI+ 2026
           </h2>
 
-          <ul className="space-y-2">
+          <ul className="grid grid-cols-2 gap-x-3 gap-y-2 md:block md:space-y-2">
             {footerLinks.map((link) => (
               <li key={link.href}>
                 <Link
@@ -165,11 +165,11 @@ export function Footer() {
         </nav>
 
         <section>
-          <h2 className="mb-4 font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+          <h2 className="mb-2 font-display text-[10px] uppercase tracking-[0.2em] text-muted-foreground md:mb-4">
             Venue
           </h2>
 
-          <div className="border border-border bg-card/20 p-4 text-sm leading-relaxed text-muted-foreground">
+          <div className="border border-border bg-card/20 p-3 text-sm leading-relaxed text-muted-foreground md:p-4">
             <p className="text-primary">DETI · Universidade de Aveiro</p>
             <p className="mt-2">September 29 — October 1, 2026</p>
             <a
