@@ -104,8 +104,24 @@ const icon = (px) =>
 await render(icon(64), { width: 64, height: 64 }, "app/icon.png");
 await render(icon(180), { width: 180, height: 180 }, "app/apple-icon.png");
 
-// Email logo. It is rendered with the real Architype font so the visual mark is
-// exact even in clients such as Gmail/Outlook that may ignore web fonts.
+// -----------------------------------------------------------------------------
+// Email brand assets
+// -----------------------------------------------------------------------------
+//
+// Email clients such as Gmail and Outlook do not reliably load custom webfonts.
+// Therefore the logo and display headlines are rasterized at 2x resolution with
+// the exact Architype font used by the site. They are displayed at half their
+// pixel dimensions in email, keeping them sharp on Retina/HiDPI screens.
+
+const emailFonts = [
+  {
+    name: "Architype",
+    data: architype,
+    style: "normal",
+    weight: 400,
+  },
+];
+
 await render(
   h(
     "div",
@@ -123,7 +139,7 @@ await render(
       "span",
       {
         style: {
-          fontSize: 126,
+          fontSize: 176,
           lineHeight: 1,
           color: WHITE,
         },
@@ -134,10 +150,10 @@ await render(
       "span",
       {
         style: {
-          fontSize: 126,
+          fontSize: 176,
           lineHeight: 1,
           color: CYAN,
-          marginLeft: 7,
+          marginLeft: 8,
         },
       },
       "+",
@@ -147,19 +163,78 @@ await render(
       {
         style: {
           display: "flex",
-          gap: 10,
-          marginLeft: 32,
+          gap: 14,
+          marginLeft: 42,
           alignItems: "center",
         },
       },
-      h("div", { style: { width: 48, height: 48, background: WHITE } }),
-      h("div", { style: { width: 48, height: 48, background: CYAN } }),
+      h("div", {
+        style: {
+          width: 64,
+          height: 64,
+          background: WHITE,
+        },
+      }),
+      h("div", {
+        style: {
+          width: 64,
+          height: 64,
+          background: CYAN,
+        },
+      }),
     ),
   ),
   {
-    width: 600,
-    height: 190,
-    fonts: [{ name: "Architype", data: architype, style: "normal", weight: 400 }],
+    width: 900,
+    height: 260,
+    fonts: emailFonts,
   },
   "public/email/deti-plus-logo.png",
 );
+
+const emailHeadlines = [
+  ["headline-youre-in.png", "you're in.", 620],
+  ["headline-waiting-list.png", "waiting list.", 780],
+  ["headline-your-link.png", "your link.", 570],
+  ["headline-cv-received.png", "CV received.", 730],
+  ["headline-cv-updated.png", "CV updated.", 700],
+  ["headline-cancelled.png", "cancelled.", 600],
+  ["headline-restored.png", "restored.", 570],
+  ["headline-status-update.png", "status update.", 790],
+  ["headline-one-week-left.png", "one week left.", 820],
+  ["headline-48-hours-left.png", "48 hours left.", 820],
+  ["headline-one-week-to-go.png", "one week to go.", 890],
+  ["headline-tomorrow.png", "tomorrow.", 620],
+  ["headline-today.png", "today.", 450],
+  ["headline-thank-you.png", "thank you.", 600],
+];
+
+for (const [fileName, text, width] of emailHeadlines) {
+  await render(
+    h(
+      "div",
+      {
+        style: {
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          background: "transparent",
+          color: WHITE,
+          fontFamily: "Architype",
+          fontSize: 150,
+          lineHeight: 0.9,
+          letterSpacing: "-1px",
+          whiteSpace: "nowrap",
+        },
+      },
+      text,
+    ),
+    {
+      width,
+      height: 190,
+      fonts: emailFonts,
+    },
+    `public/email/${fileName}`,
+  );
+}

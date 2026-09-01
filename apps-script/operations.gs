@@ -146,7 +146,7 @@ function queueParticipantEmail_(email) {
   set('lastAttemptAt', '');
 
   sheet.getRange(row, 1, 1, values.length).setValues([values]);
-  return true;
+  return { sheet: sheet, row: row, record: email };
 }
 
 function emailQueueHasDedupeKey_(dedupeKey, sheet) {
@@ -199,43 +199,52 @@ function processEmailQueue() {
     const sendAfter = new Date(record.sendAfter).getTime();
     if (Number.isFinite(sendAfter) && sendAfter > Date.now()) return false;
 
-    const attempts = Number(record.attempts || 0);
-
-    try {
-      MailApp.sendEmail(record.recipient, record.subject, record.textBody, {
-        name: 'DETI+',
-        replyTo: record.replyTo || undefined,
-        htmlBody: record.htmlBody || undefined,
-      });
-
-      setCells_(sheet, entry.row, {
-        status: 'sent',
-        sentAt: new Date(),
-        lastAttemptAt: new Date(),
-        lastError: '',
-      });
-      sent++;
-    } catch (err) {
-      const next = attempts + 1;
-      const failed = next >= 3;
-      const delayMinutes = next === 1 ? 5 : 30;
-      const retryAt = failed
-        ? new Date()
-        : new Date(Date.now() + delayMinutes * 60 * 1000);
-
-      setCells_(sheet, entry.row, {
-        attempts: next,
-        status: failed ? 'failed' : 'pending',
-        sendAfter: retryAt,
-        lastAttemptAt: new Date(),
-        lastError: String(err).slice(0, 500),
-      });
-    }
+    if (attemptQueuedEmail_(sheet, entry.row, record)) sent++;
 
     return false;
   });
 
   return { sent: sent, quota: quota };
+}
+
+/**
+ * Sends one queued email immediately. On failure, it remains in the queue and
+ * receives the normal retry schedule.
+ */
+function attemptQueuedEmail_(sheet, row, record) {
+  const attempts = Number(record.attempts || 0);
+
+  try {
+    MailApp.sendEmail(record.recipient, record.subject, record.textBody, {
+      name: 'DETI+',
+      replyTo: record.replyTo || undefined,
+      htmlBody: record.htmlBody || undefined,
+    });
+
+    setCells_(sheet, row, {
+      status: 'sent',
+      sentAt: new Date(),
+      lastAttemptAt: new Date(),
+      lastError: '',
+    });
+    return true;
+  } catch (err) {
+    const next = attempts + 1;
+    const failed = next >= 3;
+    const delayMinutes = next === 1 ? 5 : 30;
+    const retryAt = failed
+      ? new Date()
+      : new Date(Date.now() + delayMinutes * 60 * 1000);
+
+    setCells_(sheet, row, {
+      attempts: next,
+      status: failed ? 'failed' : 'pending',
+      sendAfter: retryAt,
+      lastAttemptAt: new Date(),
+      lastError: String(err).slice(0, 500),
+    });
+    return false;
+  }
 }
 
 function waitlistEntriesSorted_(sheet) {
