@@ -71,9 +71,13 @@ function refreshControlCenter_() {
   moveControlSheetsToFront_(
     ss,
     dashboardSheet,
-    registrationSheet,
-    statisticsSheet
+    registrationSheet
   );
+
+  // Statistics remains a hidden data source for native charts. Everything an
+  // operator needs to read is rendered on Dashboard, avoiding two competing
+  // reporting surfaces while retaining a non-destructive chart source.
+  statisticsSheet.hideSheet();
 
   return {
     registered:
@@ -825,7 +829,7 @@ function renderDashboardSheet_(
 
   ensureSheetSize_(
     sheet,
-    60,
+    90,
     10
   );
 
@@ -845,14 +849,17 @@ function renderDashboardSheet_(
     );
   }
 
+  sheet.getRange('A1:C2').merge();
+  styleDetiLogoCell_(sheet.getRange('A1:C2'));
+
   sheet
     .getRange(
-      'A1:J2'
+      'D1:J2'
     )
     .merge()
     .setValue(
       config.eventName +
-      ' — Registration Control Center'
+      ' — centro de controlo'
     )
     .setBackground(
       '#111827'
@@ -871,12 +878,22 @@ function renderDashboardSheet_(
     );
 
   sheet
+    .getRange('A3:C3')
+    .merge()
+    .setValue('PAINEL OPERACIONAL')
+    .setBackground(DETI_SHEET_THEME.panel)
+    .setFontColor(DETI_SHEET_THEME.accent)
+    .setFontWeight('bold')
+    .setFontSize(10)
+    .setVerticalAlignment('middle');
+
+  sheet
     .getRange(
-      'A3:J3'
+      'D3:J3'
     )
     .merge()
     .setValue(
-      'Operational overview · Last refreshed ' +
+      'Atualizado em ' +
       Utilities.formatDate(
         new Date(),
         config.timezone ||
@@ -884,9 +901,7 @@ function renderDashboardSheet_(
         'dd/MM/yyyy HH:mm'
       )
     )
-    .setFontColor(
-      '#6b7280'
-    )
+    .setFontColor(DETI_SHEET_THEME.muted)
     .setFontSize(
       10
     );
@@ -894,52 +909,52 @@ function renderDashboardSheet_(
   renderDashboardCard_(
     sheet,
     'A5:B7',
-    'CONFIRMED',
+    'CONFIRMADOS',
     stats.confirmed
   );
 
   renderDashboardCard_(
     sheet,
     'C5:D7',
-    'CHECKED IN',
+    'CHECK-IN',
     stats.checkedIn
   );
 
   renderDashboardCard_(
     sheet,
     'E5:F7',
-    'WAITLIST',
+    'LISTA DE ESPERA',
     stats.waitlisted
   );
 
   renderDashboardCard_(
     sheet,
     'G5:H7',
-    'CVs',
+    'CVS RECEBIDOS',
     stats.withCv
   );
 
   renderDashboardCard_(
     sheet,
     'I5:J7',
-    'TODAY',
+    'HOJE',
     stats.registrationsToday
   );
 
   renderDashboardCard_(
     sheet,
     'A9:B11',
-    'CAPACITY',
+    'LOTAÇÃO',
     availability.capacity >
       0
       ? availability.capacity
-      : 'Unlimited'
+      : 'Sem limite'
   );
 
   renderDashboardCard_(
     sheet,
     'C9:D11',
-    'PLACES LEFT',
+    'VAGAS',
     availability.remaining ===
       null
       ? '—'
@@ -949,7 +964,7 @@ function renderDashboardSheet_(
   renderDashboardCard_(
     sheet,
     'E9:F11',
-    'OCCUPANCY',
+    'OCUPAÇÃO',
     availability.percentage ===
       null
       ? '—'
@@ -974,7 +989,7 @@ function renderDashboardSheet_(
   renderDashboardCard_(
     sheet,
     'G9:H11',
-    'CV RATE',
+    'TAXA DE CV',
     cvRate +
     '%'
   );
@@ -982,7 +997,7 @@ function renderDashboardSheet_(
   renderDashboardCard_(
     sheet,
     'I9:J11',
-    'LAST 24H',
+    'ÚLTIMAS 24H',
     stats.registrationsLast24h
   );
 
@@ -992,7 +1007,7 @@ function renderDashboardSheet_(
     )
     .merge()
     .setValue(
-      'Event configuration'
+      'Configuração do evento'
     )
     .setBackground(
       '#f3f4f6'
@@ -1003,25 +1018,25 @@ function renderDashboardSheet_(
 
   const eventInfo = [
     [
-      'Registration enabled',
+      'Inscrições ativas',
       config.registrationEnabled
-        ? 'Yes'
-        : 'No',
+        ? 'Sim'
+        : 'Não',
 
-      'Current state',
+      'Estado atual',
       String(
         availability.state
       ).toUpperCase(),
     ],
 
     [
-      'Registration opens',
+      'Abertura das inscrições',
       formatDashboardDate_(
         config.registrationOpensAt,
         config.timezone
       ),
 
-      'Registration closes',
+      'Fecho das inscrições',
       formatDashboardDate_(
         config.registrationClosesAt,
         config.timezone
@@ -1029,26 +1044,26 @@ function renderDashboardSheet_(
     ],
 
     [
-      'Maximum registrations',
+      'Máximo de inscrições',
       config.maxRegistrations ===
         0
-        ? 'Unlimited'
+        ? 'Sem limite'
         : config.maxRegistrations,
 
-      'Waitlist',
+      'Lista de espera',
       config.waitlistEnabled
-        ? 'Enabled'
-        : 'Disabled',
+        ? 'Ativa'
+        : 'Inativa',
     ],
 
     [
-      'Maximum waitlist',
+      'Máximo em lista de espera',
       config.maxWaitlist ===
         0
-        ? 'Unlimited'
+        ? 'Sem limite'
         : config.maxWaitlist,
 
-      'CV deadline',
+      'Prazo de CV',
       formatDashboardDate_(
         config.cvDeadline,
         config.timezone
@@ -1056,13 +1071,13 @@ function renderDashboardSheet_(
     ],
 
     [
-      'Data retention until',
+      'Retenção de dados até',
       formatDashboardDate_(
         config.dataRetentionUntil,
         config.timezone
       ),
 
-      'Schema version',
+      'Versão do esquema',
       typeof getSchemaVersion_ ===
         'function'
         ? (
@@ -1116,10 +1131,13 @@ function renderDashboardSheet_(
     availability
   );
 
+  renderDashboardStatistics_(sheet, stats);
+
   addDashboardCharts_(
     sheet,
     statisticsSheet,
-    stats
+    stats,
+    50
   );
 
   sheet.setFrozenRows(
@@ -1140,9 +1158,7 @@ function renderDashboardCard_(
 
   range
     .merge()
-    .setBackground(
-      '#ffffff'
-    )
+    .setBackground(DETI_SHEET_THEME.body)
     .setBorder(
       true,
       true,
@@ -1150,7 +1166,7 @@ function renderDashboardCard_(
       true,
       false,
       false,
-      '#d1d5db',
+      DETI_SHEET_THEME.border,
       SpreadsheetApp
         .BorderStyle
         .SOLID
@@ -1173,6 +1189,8 @@ function renderDashboardCard_(
     .setFontWeight(
       'bold'
     )
+    .setFontFamily(DETI_SHEET_THEME.font)
+    .setFontColor(DETI_SHEET_THEME.panel)
     .setFontSize(
       14
     )
@@ -1190,14 +1208,14 @@ function renderOperationalWarnings_(
   availability
 ) {
   let message =
-    '● Operational';
+    '● Operacional';
 
   if (
     availability.state ===
     'full'
   ) {
     message =
-      '● FULL — event capacity reached';
+      '● LOTADO — capacidade do evento atingida';
   } else if (
     availability.percentage !==
       null &&
@@ -1205,15 +1223,15 @@ function renderOperationalWarnings_(
       90
   ) {
     message =
-      '⚠ Capacity above 90%';
+      '⚠ Ocupação acima de 90%';
   } else if (
     stats.withoutCv >
     0
   ) {
     message =
-      '● Operational · ' +
+      '● Operacional · ' +
       stats.withoutCv +
-      ' participant(s) without CV';
+      ' participante(s) sem CV';
   }
 
   sheet
@@ -1225,11 +1243,106 @@ function renderOperationalWarnings_(
       message
     )
     .setBackground(
-      '#f9fafb'
+      DETI_SHEET_THEME.accentSoft
     )
     .setFontWeight(
       'bold'
     );
+}
+
+/** Renders the previously separate Statistics sheet as dashboard panels. */
+function renderDashboardStatistics_(sheet, stats) {
+  const registrationRows = [
+    ['Confirmados', stats.confirmed],
+    ['Check-in', stats.checkedIn],
+    ['Lista de espera', stats.waitlisted],
+    ['Cancelados', stats.cancelled],
+  ];
+
+  const cvRows = [
+    ['Com CV', stats.withCv],
+    ['Sem CV', stats.withoutCv],
+    ['Enviados', stats.cvSubmitted],
+    ['Atualizados', stats.cvUpdated],
+  ];
+
+  const timeRows = [
+    ['Hoje', stats.registrationsToday],
+    ['Últimas 24h', stats.registrationsLast24h],
+    ['Últimos 7 dias', stats.registrationsLast7Days],
+    ['Média/dia', stats.averagePerDay],
+    ['Dia de maior adesão', stats.peakDay || '—'],
+    ['Inscrições nesse dia', stats.peakDayCount],
+  ];
+
+  renderDashboardTablePanel_(sheet, 'A22:D22', 'Inscrições', registrationRows, 23);
+  renderDashboardTablePanel_(sheet, 'E22:H22', 'CVs', cvRows, 23);
+  renderDashboardTablePanel_(sheet, 'I22:J22', 'Ritmo', timeRows, 23);
+
+  renderDashboardTablePanel_(
+    sheet,
+    'A31:D31',
+    'Por curso',
+    statMapRows_(stats.byCourse, true).slice(0, 12),
+    32
+  );
+
+  renderDashboardTablePanel_(
+    sheet,
+    'E31:H31',
+    'Por ano curricular',
+    statMapRows_(stats.byYear, false),
+    32
+  );
+
+  const dailyRows = stats.dailyRows.slice(-14).map(function (row) {
+    return [row[0], row[1] + ' inscrição(ões)', row[2] + ' acumuladas'];
+  });
+  renderDashboardTablePanel_(sheet, 'I31:J31', 'Últimos dias', dailyRows, 32);
+}
+
+function renderDashboardTablePanel_(sheet, titleRange, title, rows, startRow) {
+  const titleCell = sheet.getRange(titleRange);
+  const startColumn = titleCell.getColumn();
+  const width = titleCell.getNumColumns();
+
+  titleCell
+    .merge()
+    .setValue(title)
+    .setBackground(DETI_SHEET_THEME.panel)
+    .setFontColor(DETI_SHEET_THEME.white)
+    .setFontFamily(DETI_SHEET_THEME.font)
+    .setFontWeight('bold')
+    .setVerticalAlignment('middle');
+
+  if (!rows.length) {
+    sheet.getRange(startRow, startColumn, 1, width).merge()
+      .setValue('Ainda sem dados.')
+      .setFontColor(DETI_SHEET_THEME.muted);
+    return;
+  }
+
+  const content = rows.map(function (row) {
+    return [row[0], row.slice(1).join(' · ')];
+  });
+  const range = sheet.getRange(startRow, startColumn, content.length, width);
+  const expanded = content.map(function (row) {
+    const values = [row[0], row[1]];
+    while (values.length < width) values.push('');
+    return values;
+  });
+
+  range.setValues(expanded)
+    .setFontFamily(DETI_SHEET_THEME.font)
+    .setFontSize(10)
+    .setVerticalAlignment('middle')
+    .setBackground(DETI_SHEET_THEME.bodyAlt);
+
+  sheet.getRange(startRow, startColumn, content.length, 1)
+    .setFontWeight('bold')
+    .setFontColor(DETI_SHEET_THEME.panel);
+  sheet.getRange(startRow, startColumn + 1, content.length, width - 1)
+    .setFontColor('#525252');
 }
 
 // -----------------------------------------------------------------------------
@@ -1239,7 +1352,8 @@ function renderOperationalWarnings_(
 function addDashboardCharts_(
   dashboard,
   statisticsSheet,
-  stats
+  stats,
+  firstRow
 ) {
   dashboard
     .getCharts()
@@ -1280,7 +1394,7 @@ function addDashboardCharts_(
           )
       )
       .setPosition(
-        22,
+        firstRow || 22,
         1,
         0,
         0
@@ -1328,7 +1442,7 @@ function addDashboardCharts_(
           )
       )
       .setPosition(
-        22,
+        firstRow || 22,
         6,
         0,
         0
@@ -1469,8 +1583,7 @@ function resetDerivedSheet_(
 function moveControlSheetsToFront_(
   ss,
   dashboard,
-  registration,
-  statistics
+  registration
 ) {
   ss.setActiveSheet(
     dashboard
@@ -1486,14 +1599,6 @@ function moveControlSheetsToFront_(
 
   ss.moveActiveSheet(
     2
-  );
-
-  ss.setActiveSheet(
-    statistics
-  );
-
-  ss.moveActiveSheet(
-    3
   );
 
   ss.setActiveSheet(

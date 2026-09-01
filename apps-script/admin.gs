@@ -38,6 +38,7 @@ const ADMIN_ACTION_LABELS = [
   'Cancelar inscrição',
   'Restaurar inscrição',
   'Promover da lista de espera',
+  'Abrir CV',
   'Fazer check-in',
   'Anular check-in',
   'Eliminar participante',
@@ -50,6 +51,7 @@ const ADMIN_ACTION_MAP = {
   'Cancelar inscrição': 'CANCEL_REGISTRATION',
   'Restaurar inscrição': 'RESTORE_REGISTRATION',
   'Promover da lista de espera': 'PROMOTE_WAITLIST',
+  'Abrir CV': 'OPEN_CV',
   'Fazer check-in': 'CHECK_IN',
   'Anular check-in': 'UNDO_CHECK_IN',
   'Eliminar participante': 'DELETE_PARTICIPANT_DATA',
@@ -100,6 +102,7 @@ function onOpen() {
     .addItem('Abrir / atualizar Admin', 'initializeAdminSheet_')
     .addItem('Atualizar dashboard', 'refreshControlCenter_')
     .addItem('Formatar inscrições', 'formatRegistrationSheetMenu_')
+    .addItem('Criar ligações diretas para CVs', 'linkExistingCvFilesMenu_')
     .addItem('Formatar configurações', 'formatSettingsSheetMenu_')
     .addSeparator()
     .addItem('Executar migração', 'migrateSystem')
@@ -687,11 +690,53 @@ function executeExistingParticipantAction_(action, email) {
     case 'CANCEL_REGISTRATION': return adminCancelRegistration_(email);
     case 'RESTORE_REGISTRATION': return adminRestoreRegistration_(email);
     case 'PROMOTE_WAITLIST': return adminPromoteWaitlist_(email);
+    case 'OPEN_CV': return adminOpenCv_(email);
     case 'CHECK_IN': return adminCheckIn_(email);
     case 'UNDO_CHECK_IN': return adminUndoCheckIn_(email);
     case 'DELETE_PARTICIPANT_DATA': return adminDeleteParticipantData_(email);
     default: return adminError_('Ação não suportada.');
   }
+}
+
+/**
+ * Opens an administrator-only link to the selected participant's private CV.
+ * The Drive file remains private: the link inherits the owner's Drive
+ * permissions and is never returned by the public participant API.
+ */
+function adminOpenCv_(email) {
+  const found = findRowByEmail_(getSheet_(), email);
+  if (!found) return adminError_('Participante não encontrado.');
+  if (!found.record.cvFileId) return adminError_('Este participante ainda não enviou CV.');
+
+  let file;
+  try {
+    file = DriveApp.getFileById(String(found.record.cvFileId));
+  } catch (err) {
+    console.warn('Could not open CV: ' + err);
+    return adminError_('Não foi possível aceder ao ficheiro de CV associado.');
+  }
+
+  const url = file.getUrl();
+  const name = String(found.record.name || 'participante');
+  const output = HtmlService.createHtmlOutput(
+    '<!doctype html><html><head><base target="_blank"></head><body style="font-family:Arial,sans-serif;padding:16px">' +
+      '<p>A abrir o CV de <strong>' + escapeAdminHtml_(name) + '</strong>…</p>' +
+      '<p><a href="' + escapeAdminHtml_(url) + '" target="_blank" rel="noopener">Abrir CV</a></p>' +
+      '<script>window.open(' + JSON.stringify(url) + ', "_blank");google.script.host.close();</script>' +
+      '</body></html>'
+  ).setWidth(320).setHeight(130);
+
+  SpreadsheetApp.getUi().showModalDialog(output, 'Abrir CV');
+  return adminSuccess_('A abrir o CV de ' + name + '.');
+}
+
+function escapeAdminHtml_(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // -----------------------------------------------------------------------------

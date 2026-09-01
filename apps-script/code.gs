@@ -43,7 +43,7 @@ const ALLOWED_MIME = 'application/pdf';
 const RATE_LIMIT_WINDOW_SECONDS = 600;
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
 const LOCK_TIMEOUT_MS = 20000;
-const YEARS = ['1', '2', '3', '4', '5', 'PhD', 'Other'];
+const YEARS = ['1', '2', '3', 'Other'];
 
 // -----------------------------------------------------------------------------
 // Entrypoints
@@ -534,6 +534,14 @@ function saveCv_(sheet, row, record, input) {
     throw err;
   }
 
+  // The direct Sheet link is a convenience for administrators. A rendering
+  // failure must never discard an otherwise valid participant upload.
+  try {
+    setCvFileLink_(sheet, row, newFile);
+  } catch (err) {
+    console.warn('CV saved but direct Sheet link could not be created: ' + err);
+  }
+
   if (replacing && previousFileId) {
     try {
       DriveApp.getFileById(previousFileId).setTrashed(true);
@@ -654,9 +662,21 @@ function validateRegistration_(data) {
   }
 
   if (data.course.length < 2) return 'Specify your course.';
-  if (YEARS.indexOf(data.year) === -1) return 'Select the academic year.';
+  if (!isAllowedAcademicYear_(data.course, data.year)) return 'Select the academic year.';
   if (data.hasGdprConsent !== 'yes') return 'You must accept the data policy.';
   return '';
+}
+
+function isAllowedAcademicYear_(course, year) {
+  if (YEARS.indexOf(year) === -1) return false;
+
+  if (course.indexOf("Master's Degree") === 0) {
+    return ['1', '2', 'Other'].indexOf(year) !== -1;
+  }
+
+  if (course.indexOf('PhD') !== -1) return year === 'Other';
+
+  return true;
 }
 
 function isValidEmail_(email) {

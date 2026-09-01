@@ -632,7 +632,7 @@ function renderParticipantEmail_(record, template) {
       ';"><a href="',
       escapeHtml_(action.url),
       '" target="_blank" style="display:inline-block;padding:14px 20px;',
-      'font-family:'Segoe UI','Helvetica Neue',Helvetica,Arial,sans-serif;',
+      'font-family:\'Segoe UI\',\'Helvetica Neue\',Helvetica,Arial,sans-serif;',
       'font-size:13px;line-height:1;letter-spacing:1.2px;font-weight:700;text-transform:uppercase;',
       'text-decoration:none;color:',
       primary ? EMAIL_THEME.black : EMAIL_THEME.white,

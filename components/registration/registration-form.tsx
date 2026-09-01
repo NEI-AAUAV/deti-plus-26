@@ -40,7 +40,6 @@ import {
 import {
   ALLOWED_CV_MIME,
   EMPTY_REGISTRATION,
-  YEARS,
   formatBytes,
   hasErrors,
   toPayload,
@@ -89,6 +88,81 @@ type RegistrationFormProps = {
     | "waitlist";
 };
 
+const COURSE_OPTIONS = [
+  "Bachelor's Degree in Electrical and Computer Engineering",
+  "Bachelor's Degree in Computer and Informatics Engineering",
+  "Bachelor's Degree in Informatics Engineering",
+  "Bachelor's Degree in Aerospace Engineering",
+  "Bachelor's Degree in Industrial Automation Engineering",
+  "Bachelor's Degree in Biomedical Engineering",
+  "Master's Degree in Electronics and Telecommunications Engineering",
+  "Master's Degree in Computer Engineering and Telematics",
+  "Master's Degree in Informatics Engineering",
+  "Master's Degree in Industrial Automation Engineering",
+  "Master's Degree in Robotics and Intelligent Systems",
+  "Master's Degree in Cybersecurity",
+  "Master's Degree in Medical Imaging Technologies",
+  "Master's Degree in Computational Engineering",
+  "Master's Degree in Digital Game Development",
+  "Master's Degree in Data Science",
+  "Master's Degree in Aerospace Engineering",
+  "Master's Degree in Semiconductor Devices Engineering",
+  "PhD in Electrical Engineering",
+  "PhD in Informatics Engineering",
+  "MAP PhD Programme in Telecommunications",
+  "MAP PhD Programme in Informatics",
+] as const;
+
+const OTHER_COURSE = "Other";
+
+const BACHELOR_YEARS = [
+  "1",
+  "2",
+  "3",
+  "Other",
+] as const;
+
+const MASTER_YEARS = [
+  "1",
+  "2",
+  "Other",
+] as const;
+
+const OTHER_YEARS = [
+  "Other",
+] as const;
+
+function yearsForCourse(
+  course:
+  string,
+) {
+  if (
+    course.startsWith(
+      "Bachelor's Degree",
+    )
+  ) {
+    return BACHELOR_YEARS;
+  }
+
+  if (
+    course.startsWith(
+      "Master's Degree",
+    )
+  ) {
+    return MASTER_YEARS;
+  }
+
+  if (
+    course.includes(
+      "PhD",
+    )
+  ) {
+    return OTHER_YEARS;
+  }
+
+  return BACHELOR_YEARS;
+}
+
 export function RegistrationForm({
                                    mode = "registration",
                                  }: RegistrationFormProps) {
@@ -100,6 +174,14 @@ export function RegistrationForm({
       RegistrationFields
     >(
       EMPTY_REGISTRATION,
+    );
+
+  const [
+    selectedCourse,
+    setSelectedCourse,
+  ] =
+    React.useState(
+      "",
     );
 
   const [
@@ -130,6 +212,11 @@ export function RegistrationForm({
     React.useRef<
       HTMLDivElement
     >(null);
+
+  const availableYears =
+    yearsForCourse(
+      selectedCourse,
+    );
 
   const cvInputRef =
     React.useRef<
@@ -590,7 +677,7 @@ export function RegistrationForm({
             </SelectTrigger>
 
             <SelectContent>
-              {YEARS.map(
+              {availableYears.map(
                 (
                   year,
                 ) => (
@@ -621,38 +708,131 @@ export function RegistrationForm({
               errors.course
             }
           >
-            <Input
-              id="course"
-              name="course"
-              autoComplete="organization-title"
-              placeholder="Ex.: Computer Engineering"
+            <Select
               value={
-                fields.course
+                selectedCourse
               }
-              onChange={(
-                event,
-              ) =>
+              onValueChange={(
+                value,
+              ) => {
+                const courseYears =
+                  yearsForCourse(
+                    value,
+                  );
+
+                setSelectedCourse(
+                  value,
+                );
+
                 update(
                   "course",
-                  event
-                    .target
-                    .value,
-                )
-              }
-              aria-invalid={
-                Boolean(
-                  errors.course,
-                )
-              }
-              aria-describedby={
-                errors.course
-                  ? "course-error"
-                  : undefined
-              }
+                  value ===
+                  OTHER_COURSE
+                    ? ""
+                    : value,
+                );
+
+                update(
+                  "year",
+                  value.includes(
+                    "PhD",
+                  )
+                    ? "Other"
+                    : courseYears.includes(
+                        fields.year as
+                          (typeof courseYears)[number],
+                      )
+                      ? fields.year
+                      : "",
+                );
+              }}
               disabled={
                 submitting
               }
-            />
+            >
+              <SelectTrigger
+                id="course"
+                aria-invalid={
+                  Boolean(
+                    errors.course,
+                  )
+                }
+                aria-describedby={
+                  errors.course
+                    ? "course-error"
+                    : undefined
+                }
+              >
+                <SelectValue placeholder="Select your course" />
+              </SelectTrigger>
+
+              <SelectContent>
+                {COURSE_OPTIONS.map(
+                  (
+                    course,
+                  ) => (
+                    <SelectItem
+                      key={
+                        course
+                      }
+                      value={
+                        course
+                      }
+                    >
+                      {
+                        course
+                      }
+                    </SelectItem>
+                  ),
+                )}
+
+                <SelectItem
+                  value={
+                    OTHER_COURSE
+                  }
+                >
+                  {
+                    OTHER_COURSE
+                  }
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            {selectedCourse ===
+            OTHER_COURSE ? (
+              <Input
+                id="other-course"
+                name="other-course"
+                autoComplete="organization-title"
+                placeholder="Specify your course"
+                value={
+                  fields.course
+                }
+                onChange={(
+                  event,
+                ) =>
+                  update(
+                    "course",
+                    event
+                      .target
+                      .value,
+                  )
+                }
+                aria-invalid={
+                  Boolean(
+                    errors.course,
+                  )
+                }
+                aria-describedby={
+                  errors.course
+                    ? "course-error"
+                    : undefined
+                }
+                disabled={
+                  submitting
+                }
+              />
+            ) : null}
           </Field>
         </div>
       </div>

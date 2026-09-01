@@ -480,6 +480,61 @@ function formatRegistrationSheet_(sheet) {
   placeRegistrationBrandMark_(sheet);
 }
 
+/**
+ * Writes an administrator-facing rich link in the visible CV name cell.
+ * The file remains private in Drive; clicking it still requires Drive access.
+ */
+function setCvFileLink_(sheet, row, file) {
+  const map = getHeaderMap_(sheet);
+  const column = map.cvName;
+  if (!column || !file) return false;
+
+  const name = file.getName();
+  const link = SpreadsheetApp.newRichTextValue()
+    .setText(name)
+    .setLinkUrl(file.getUrl())
+    .build();
+
+  sheet.getRange(row, column).setRichTextValue(link);
+  return true;
+}
+
+/**
+ * Backfills direct Drive links for CVs received before this capability.
+ * Missing/deleted files are deliberately skipped and reported, never repaired
+ * by guessing a file from a name.
+ */
+function linkExistingCvFiles_() {
+  const sheet = getSheet_();
+  const rows = readRecords_(sheet);
+  let linked = 0;
+  let skipped = 0;
+
+  rows.forEach(function (entry) {
+    const fileId = String(entry.record.cvFileId || '').trim();
+    if (!fileId) return;
+
+    try {
+      if (setCvFileLink_(sheet, entry.row, DriveApp.getFileById(fileId))) linked += 1;
+    } catch (err) {
+      skipped += 1;
+      console.warn('Could not link CV for registration ' + (entry.record.registrationId || entry.row) + ': ' + err);
+    }
+  });
+
+  return { linked: linked, skipped: skipped };
+}
+
+function linkExistingCvFilesMenu_() {
+  const result = linkExistingCvFiles_();
+  SpreadsheetApp.getUi().alert(
+    'Ligações de CV atualizadas',
+    result.linked + ' ligação(ões) criada(s).' +
+      (result.skipped ? ' ' + result.skipped + ' ficheiro(s) não puderam ser associados.' : ''),
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
 function formatRegistrationRow_(sheet, row) {
   if (row < 2) return;
 

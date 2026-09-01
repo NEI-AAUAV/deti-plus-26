@@ -49,6 +49,20 @@ The canonical registration values are `confirmed`, `waitlisted`, and
 `cancelled`; check-in is stored independently in `checkedIn` and `checkedInAt`.
 Legacy `timestamp`, `curse`, and `state` remain compatibility fields only.
 
+## CV workflow for the team
+
+Participants upload a PDF during registration or later through their personal
+link. The script stores the file in the private `CV_FOLDER_ID` folder, replaces
+the previous file safely, and keeps the public API limited to the participant's
+token.
+
+For the organizing team, the **Admin** sheet now has an **Abrir CV** action.
+Select a participant and confirm that action to open their private Drive file.
+New uploads automatically create a clickable link in the visible **Nome do CV**
+cell on the `Registration` sheet. After deploying the update, use
+**DETI+ → Criar ligações diretas para CVs** once to add those links to CVs that
+were already received.
+
 ## One-time setup
 
 1. **Create the Sheet.** Create a Google Sheet, for example `DETI+ 2026 —
@@ -112,6 +126,13 @@ In addition to registration/waitlist/CV settings, the backend now manages:
 
 These drive scheduled participant communications. Keep dates in the configured
 `timezone` (normally `Europe/Lisbon`).
+
+## Dashboard
+
+The `Dashboard` is the single operational reporting surface. It uses the DETI+
+visual system and combines registration, CV, capacity, time, course and year
+statistics with the native charts. `Statistics` is retained as a hidden chart
+data source for backwards compatibility; do not edit it manually.
 
 ## Participant email lifecycle
 

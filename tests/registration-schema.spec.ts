@@ -139,12 +139,27 @@ async function fillRegistration(
     );
 
   await page
-    .getByLabel(
-      /course/i,
+    .getByRole(
+      "combobox",
+      {
+        name:
+          /course/i,
+      },
     )
-    .fill(
-      "Computer Engineering",
-    );
+    .click();
+
+  await page
+    .getByRole(
+      "option",
+      {
+        name:
+          "Bachelor's Degree in Computer and Informatics Engineering",
+
+        exact:
+          true,
+      },
+    )
+    .click();
 
   await page
     .getByRole(
@@ -252,7 +267,7 @@ test.describe(
           registerCall,
         ).toMatchObject({
           course:
-            "Computer Engineering",
+            "Bachelor's Degree in Computer and Informatics Engineering",
         });
 
         expect(
@@ -260,6 +275,149 @@ test.describe(
         ).not.toHaveProperty(
           "curse",
         );
+      },
+    );
+
+    test(
+      "allows a custom course when Other is selected",
+      async ({
+               page,
+             }) => {
+        const calls =
+          await routeActions(
+            page,
+            {
+              registration_status:
+              openAvailability,
+
+              register: {
+                ok:
+                  true,
+
+                registered:
+                  true,
+
+                status:
+                  "confirmed",
+
+                alreadyRegistered:
+                  false,
+
+                cvUploaded:
+                  false,
+
+                magicLinkSent:
+                  true,
+              },
+            },
+          );
+
+        await page.goto(
+          "registration/index.html",
+        );
+
+        await page
+          .getByLabel(
+            /full name/i,
+          )
+          .fill(
+            "Ana Silva",
+          );
+
+        await page
+          .getByLabel(
+            /^email/i,
+          )
+          .fill(
+            "ana@ua.pt",
+          );
+
+        await page
+          .getByRole(
+            "combobox",
+            {
+              name:
+                /course/i,
+            },
+          )
+          .click();
+
+        await page
+          .getByRole(
+            "option",
+            {
+              name:
+                "Other",
+
+              exact:
+                true,
+            },
+          )
+          .click();
+
+        await page
+          .getByPlaceholder(
+            "Specify your course",
+          )
+          .fill(
+            "Bachelor's Degree in Biomedical Engineering",
+          );
+
+        await page
+          .getByRole(
+            "combobox",
+            {
+              name:
+                /academic year/i,
+            },
+          )
+          .click();
+
+        await page
+          .getByRole(
+            "option",
+            {
+              name:
+                "Other",
+
+              exact:
+                true,
+            },
+          )
+          .click();
+
+        await page
+          .getByRole(
+            "checkbox",
+            {
+              name:
+                /data/i,
+            },
+          )
+          .check();
+
+        await page
+          .getByRole(
+            "button",
+            {
+              name:
+                /confirm registration/i,
+            },
+          )
+          .click();
+
+        expect(
+          calls.find(
+            (
+              call,
+            ) =>
+              call.action ===
+              "register",
+          ),
+        ).toMatchObject({
+          course:
+            "Bachelor's Degree in Biomedical Engineering",
+        });
       },
     );
 
