@@ -8,14 +8,17 @@
 const ADMIN_SHEET_NAME = 'Admin';
 const ADMIN_SEARCH_CELL = 'B4';
 const ADMIN_SEARCH_FIELD_CELL = 'B5';
-const ADMIN_SELECTED_ID_CELL = 'B7';
+const ADMIN_REGISTRATION_FILTER_CELL = 'B6';
+const ADMIN_CV_FILTER_CELL = 'B7';
+const ADMIN_CHECKIN_FILTER_CELL = 'B8';
+const ADMIN_SELECTED_ID_CELL = 'B10';
 const ADMIN_EDITOR_FIRST_ROW = 5;
 const ADMIN_EDITOR_VALUE_COLUMN = 11; // K
 const ADMIN_ACTION_CELL = 'K18';
 const ADMIN_CONFIRM_CELL = 'K19';
 const ADMIN_RESULT_CELL = 'J22';
-const ADMIN_RESULTS_HEADER_ROW = 10;
-const ADMIN_RESULTS_FIRST_ROW = 11;
+const ADMIN_RESULTS_HEADER_ROW = 13;
+const ADMIN_RESULTS_FIRST_ROW = 14;
 const ADMIN_RESULTS_MAX = 50;
 
 const ADMIN_SEARCH_FIELDS = [
@@ -29,6 +32,26 @@ const ADMIN_SEARCH_FIELDS = [
   'Estado',
   'Estado do CV',
   'Check-in',
+];
+
+const ADMIN_REGISTRATION_FILTER_OPTIONS = [
+  'Todos',
+  'Confirmados',
+  'Lista de espera',
+  'Cancelados',
+];
+
+const ADMIN_CV_FILTER_OPTIONS = [
+  'Todos',
+  'Com CV',
+  'Sem CV',
+  'Atualizado',
+];
+
+const ADMIN_CHECKIN_FILTER_OPTIONS = [
+  'Todos',
+  'Fez check-in',
+  'Sem check-in',
 ];
 
 const ADMIN_ACTION_LABELS = [
@@ -165,7 +188,7 @@ function initializeAdminSheet_() {
   sheet
     .getRange('A3:H3')
     .merge()
-    .setValue('Pesquisa, seleção e gestão completa dos participantes. Pesquisa por qualquer campo.')
+    .setValue('Pesquisa livre e filtros rápidos para gerir participantes sem escrever estados por extenso.')
     .setBackground(DETI_SHEET_THEME.panel)
     .setFontColor(DETI_SHEET_THEME.muted)
     .setFontFamily(DETI_SHEET_THEME.font);
@@ -174,9 +197,9 @@ function initializeAdminSheet_() {
   sheet
     .getRange(ADMIN_SEARCH_CELL)
     .setBackground(DETI_SHEET_THEME.input)
-    .setNote('Pode pesquisar por nome, email, ID, telemóvel, curso, ano, estado ou check-in.');
+    .setNote('Exemplos: martim, 124833, conf, espera, sem cv, envi, 3º ou martim cv.');
 
-  sheet.getRange('A5').setValue('Pesquisar em').setFontWeight('bold');
+  sheet.getRange('A5').setValue('Pesquisar em (opcional)').setFontWeight('bold');
   sheet
     .getRange(ADMIN_SEARCH_FIELD_CELL)
     .setDataValidation(
@@ -188,14 +211,18 @@ function initializeAdminSheet_() {
     .setValue('Tudo')
     .setBackground(DETI_SHEET_THEME.input);
 
-  sheet.getRange('A7').setValue('Participante selecionado').setFontWeight('bold');
+  setAdminFilterDropdown_(sheet, 'A6', ADMIN_REGISTRATION_FILTER_CELL, 'Estado', ADMIN_REGISTRATION_FILTER_OPTIONS);
+  setAdminFilterDropdown_(sheet, 'A7', ADMIN_CV_FILTER_CELL, 'CV', ADMIN_CV_FILTER_OPTIONS);
+  setAdminFilterDropdown_(sheet, 'A8', ADMIN_CHECKIN_FILTER_CELL, 'Check-in', ADMIN_CHECKIN_FILTER_OPTIONS);
+
+  sheet.getRange('A10').setValue('Participante selecionado').setFontWeight('bold');
   sheet
     .getRange(ADMIN_SELECTED_ID_CELL)
     .setBackground(DETI_SHEET_THEME.input)
     .setNote('Escolha um ID resultante da pesquisa ou introduza-o diretamente.');
 
   sheet
-    .getRange('A9:H9')
+    .getRange('A12:H12')
     .merge()
     .setValue('Resultados')
     .setBackground(DETI_SHEET_THEME.panelAlt)
@@ -292,6 +319,19 @@ function initializeAdminSheet_() {
   return sheet;
 }
 
+function setAdminFilterDropdown_(sheet, labelCell, valueCell, label, options) {
+  sheet.getRange(labelCell).setValue(label).setFontWeight('bold');
+  sheet.getRange(valueCell)
+    .setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(options, true)
+        .setAllowInvalid(false)
+        .build()
+    )
+    .setValue('Todos')
+    .setBackground(DETI_SHEET_THEME.input);
+}
+
 // -----------------------------------------------------------------------------
 // Triggers
 // -----------------------------------------------------------------------------
@@ -314,7 +354,13 @@ function handleAdminEdit_(e) {
   if (sheet.getName() !== ADMIN_SHEET_NAME) return;
 
   const a1 = e.range.getA1Notation();
-  if (a1 === ADMIN_SEARCH_CELL || a1 === ADMIN_SEARCH_FIELD_CELL) {
+  if ([
+    ADMIN_SEARCH_CELL,
+    ADMIN_SEARCH_FIELD_CELL,
+    ADMIN_REGISTRATION_FILTER_CELL,
+    ADMIN_CV_FILTER_CELL,
+    ADMIN_CHECKIN_FILTER_CELL,
+  ].indexOf(a1) !== -1) {
     refreshAdminSearch_();
     return;
   }
@@ -425,10 +471,17 @@ function refreshAdminSearch_() {
   const admin = getOrCreateAdminSheet_();
   const query = String(admin.getRange(ADMIN_SEARCH_CELL).getValue() || '').trim();
   const field = String(admin.getRange(ADMIN_SEARCH_FIELD_CELL).getValue() || 'Tudo').trim();
-  const matches = searchAdminParticipants_(query, field);
+  const matches = searchAdminParticipants_(query, field, {
+    registration: String(admin.getRange(ADMIN_REGISTRATION_FILTER_CELL).getValue() || 'Todos').trim(),
+    cv: String(admin.getRange(ADMIN_CV_FILTER_CELL).getValue() || 'Todos').trim(),
+    checkin: String(admin.getRange(ADMIN_CHECKIN_FILTER_CELL).getValue() || 'Todos').trim(),
+  });
   const outputRange = admin.getRange(ADMIN_RESULTS_FIRST_ROW, 1, ADMIN_RESULTS_MAX, 8);
 
-  outputRange.clearContent().clearFormat();
+  // Search results are rebuilt on every refresh. Remove old validations too:
+  // otherwise checkboxes/dropdowns from a previous result can remain visible
+  // in now-empty rows below the current result list.
+  outputRange.clearContent().clearFormat().clearDataValidations();
 
   const values = matches.slice(0, ADMIN_RESULTS_MAX).map(function (entry) {
     const record = entry.record;
@@ -468,7 +521,7 @@ function refreshAdminSearch_() {
 
   setAdminResult_(
     !query
-      ? 'A mostrar as inscrições mais recentes. Use a pesquisa para filtrar.'
+      ? 'A mostrar as inscrições mais recentes. Use a pesquisa ou os filtros rápidos.'
       : values.length + ' resultado(s) encontrado(s).',
     false
   );
@@ -476,22 +529,25 @@ function refreshAdminSearch_() {
   return matches;
 }
 
-function searchAdminParticipants_(query, field) {
+function searchAdminParticipants_(query, field, filters) {
   const rows = readRecords_(getSheet_());
-  const normalizedQuery = normalizeAdminSearchText_(query);
+  const terms = adminSearchTerms_(query);
+  const selectedFilters = filters || {};
 
   const filtered = rows.filter(function (entry) {
-    if (!normalizedQuery) return true;
-
     const values = adminSearchValues_(entry.record);
-    if (field === 'Tudo') {
-      return Object.keys(values).some(function (key) {
-        return normalizeAdminSearchText_(values[key]).indexOf(normalizedQuery) !== -1;
-      });
-    }
+    if (!adminMatchesQuickFilters_(entry.record, selectedFilters)) return false;
+    if (!terms.length) return true;
 
-    const key = adminSearchFieldKey_(field);
-    return normalizeAdminSearchText_(values[key]).indexOf(normalizedQuery) !== -1;
+    const fields = field === 'Tudo'
+      ? Object.keys(values)
+      : [adminSearchFieldKey_(field)];
+
+    return terms.every(function (term) {
+      return fields.some(function (key) {
+        return normalizeAdminSearchText_(values[key]).indexOf(term) !== -1;
+      });
+    });
   });
 
   return filtered.sort(function (a, b) {
@@ -502,17 +558,62 @@ function searchAdminParticipants_(query, field) {
 }
 
 function adminSearchValues_(record) {
+  const registrationStatus = normalizedRegistrationStatus_(record);
+  const cvStatus = normalizedCvStatus_(record);
   return {
     id: record.registrationId || '',
     name: record.name || '',
     email: record.email || '',
     mobile: record.mobileNumber || '',
     course: record.course || record.curse || '',
-    year: record.year || '',
-    status: normalizedRegistrationStatus_(record),
-    cv: normalizedCvStatus_(record),
+    year: String(record.year || '') + ' ano ano curricular',
+    status: adminRegistrationSearchTerms_(registrationStatus),
+    cv: adminCvSearchTerms_(cvStatus),
     checkin: isRecordCheckedIn_(record) ? 'sim yes true checked in' : 'não nao no false',
   };
+}
+
+function adminSearchTerms_(query) {
+  return normalizeAdminSearchText_(query)
+    .split(/[^a-z0-9@.+-]+/)
+    .filter(function (term) { return term.length > 0; });
+}
+
+function adminRegistrationSearchTerms_(status) {
+  const terms = {
+    confirmed: 'confirmed confirmado confirmada confirmados confirmadas aceite aceite aprovada aprovado',
+    waitlisted: 'waitlisted espera lista de espera em espera',
+    cancelled: 'cancelled cancelado cancelada cancelados canceladas',
+  };
+  return terms[status] || status;
+}
+
+function adminCvSearchTerms_(status) {
+  const terms = {
+    none: 'none sem cv pendente por enviar nao enviado',
+    submitted: 'submitted submetido submetida enviado enviada recebido recebida com cv',
+    updated: 'updated atualizado atualizada substituido substituida reenviado reenviada com cv',
+  };
+  return terms[status] || status;
+}
+
+function adminMatchesQuickFilters_(record, filters) {
+  const registration = String(filters.registration || 'Todos');
+  const cv = String(filters.cv || 'Todos');
+  const checkin = String(filters.checkin || 'Todos');
+  const registrationStatus = normalizedRegistrationStatus_(record);
+  const cvStatus = normalizedCvStatus_(record);
+  const checkedIn = isRecordCheckedIn_(record);
+
+  if (registration === 'Confirmados' && registrationStatus !== 'confirmed') return false;
+  if (registration === 'Lista de espera' && registrationStatus !== 'waitlisted') return false;
+  if (registration === 'Cancelados' && registrationStatus !== 'cancelled') return false;
+  if (cv === 'Com CV' && (cvStatus !== 'submitted' && cvStatus !== 'updated')) return false;
+  if (cv === 'Sem CV' && cvStatus !== 'none') return false;
+  if (cv === 'Atualizado' && cvStatus !== 'updated') return false;
+  if (checkin === 'Fez check-in' && !checkedIn) return false;
+  if (checkin === 'Sem check-in' && checkedIn) return false;
+  return true;
 }
 
 function adminSearchFieldKey_(field) {

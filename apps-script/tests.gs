@@ -45,6 +45,24 @@ function runBackendSelfTests() {
   check('migration inference', inferMigrationRegistrationStatus_('checked_in'), 'confirmed');
   check('checked-in inference', isRecordCheckedIn_({ checkedIn: 'true' }), true);
   check('email first name', firstName_('Ana Maria Silva'), 'Ana');
+  check(
+    'admin search accepts Portuguese CV shorthand',
+    adminCvSearchTerms_('none').indexOf('sem cv') !== -1,
+    true
+  );
+  check(
+    'admin search tokenizes mixed terms',
+    adminSearchTerms_('Martim, sem CV').join('|'),
+    'martim|sem|cv'
+  );
+  check(
+    'admin quick filter matches waitlist',
+    adminMatchesQuickFilters_(
+      { registrationStatus: 'waitlisted', cvStatus: 'none', checkedIn: false },
+      { registration: 'Lista de espera', cv: 'Sem CV', checkin: 'Sem check-in' }
+    ),
+    true
+  );
 
   const textPreview = renderParticipantTextEmail_(
     { name: 'Ana Silva' },

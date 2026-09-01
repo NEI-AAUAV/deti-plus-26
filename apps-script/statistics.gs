@@ -853,31 +853,6 @@ function renderDashboardSheet_(
   styleDetiLogoCell_(sheet.getRange('A1:C2'));
 
   sheet
-    .getRange(
-      'D1:J2'
-    )
-    .merge()
-    .setValue(
-      config.eventName +
-      ' — centro de controlo'
-    )
-    .setBackground(
-      '#111827'
-    )
-    .setFontColor(
-      '#ffffff'
-    )
-    .setFontWeight(
-      'bold'
-    )
-    .setFontSize(
-      20
-    )
-    .setVerticalAlignment(
-      'middle'
-    );
-
-  sheet
     .getRange('A3:C3')
     .merge()
     .setValue('PAINEL OPERACIONAL')

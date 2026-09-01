@@ -872,7 +872,24 @@ function applySettingsValidation_(sheet) {
     }
 
     if (definition.type === 'date') {
-      valueCell.setNumberFormat('dd/mm/yyyy hh:mm');
+      const currentValue = valueCell.getValue();
+
+      // Convert legacy ISO/text values into real Sheet dates. Native date
+      // values show Google Sheets' calendar picker when the cell is selected.
+      if (typeof currentValue === 'string' && currentValue.trim()) {
+        const parsedDate = settingDate_(currentValue);
+        if (parsedDate) valueCell.setValue(parsedDate);
+      }
+
+      const validation = SpreadsheetApp.newDataValidation()
+        .requireDate()
+        .setAllowInvalid(false)
+        .setHelpText('Escolha a data no calendário do Google Sheets e, se necessário, indique a hora.')
+        .build();
+
+      valueCell
+        .setDataValidation(validation)
+        .setNumberFormat('dd/mm/yyyy hh:mm');
       return;
     }
 

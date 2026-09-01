@@ -1,11 +1,12 @@
 import React from "react";
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+
 import "./globals.css";
 
 const architype = localFont({
   src: "../public/fonts/Architype-Stedelijk.ttf",
-  variable: "--font-architype", // Creates a CSS variable we can use in Tailwind
+  variable: "--font-architype",
   display: "swap",
 });
 
@@ -15,14 +16,12 @@ const vayuSans = localFont({
   display: "swap",
 });
 
-// Next prepends `basePath` to asset-derived metadata URLs (og:image, icons),
-// so metadataBase must be the bare origin or those URLs come out doubled.
 const SITE_ORIGIN = "https://nei-aauav.github.io";
 const BASE_PATH = "/deti-plus-26";
 const SITE_URL = `${SITE_ORIGIN}${BASE_PATH}`;
 const TITLE = "DETI+ 2026 — Company Fair at Universidade de Aveiro";
 const DESCRIPTION =
-  "DETI+ is a 3-day company fair organized by NEEETA, NEI and NEECT at DETI, Universidade de Aveiro. May 19–21, 2026. Meet leading engineering and technology companies, explore internships and job offers.";
+  "DETI+ is a 3-day company fair organized by NEEETA, NEI and NEECT at DETI, Universidade de Aveiro. September 29–October 1, 2026. Meet leading engineering and technology companies, explore internships and job offers.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),
@@ -64,15 +63,13 @@ export const viewport: Viewport = {
   themeColor: "#000000",
 };
 
-// Structured data so search engines and social platforms can surface the event
-// itself (dates, venue, organizers) rather than just a generic web page.
 const eventJsonLd = {
   "@context": "https://schema.org",
   "@type": "Event",
   name: "DETI+ 2026",
   description: DESCRIPTION,
-  startDate: "2026-05-19T09:00:00+01:00",
-  endDate: "2026-05-21T20:00:00+01:00",
+  startDate: "2026-09-29T17:00:00+01:00",
+  endDate: "2026-10-01",
   eventStatus: "https://schema.org/EventScheduled",
   eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
   url: SITE_URL,
@@ -100,7 +97,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${architype.variable} ${vayuSans.variable}`}>
+    <html
+      lang="en"
+      className={`${architype.variable} ${vayuSans.variable}`}
+    >
       <body>
         <a
           href="#main"
@@ -108,10 +108,11 @@ export default function RootLayout({
         >
           Skip to content
         </a>
+
         {children}
+
         <script
           type="application/ld+json"
-          // Static, author-controlled object — no user input reaches this string.
           dangerouslySetInnerHTML={{ __html: JSON.stringify(eventJsonLd) }}
         />
       </body>
