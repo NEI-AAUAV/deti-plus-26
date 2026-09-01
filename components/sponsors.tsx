@@ -1,4 +1,6 @@
 import { PixelCross } from "./pixel-elements";
+import { Reveal } from "@/components/reveal";
+import { SectionHeading } from "@/components/section-heading";
 
 const tiers = [
   {
@@ -48,24 +50,11 @@ export function Sponsors() {
   return (
     <section
       id="sponsors"
-      aria-labelledby="sponsors-heading"
+      aria-label="Sponsors"
       className="border-t border-border py-24"
     >
       <div className="mx-auto max-w-7xl px-6">
-        <div className="mb-20 text-center">
-          <div className="mb-4 flex items-center justify-center gap-2">
-            <div className="h-2 w-2 bg-accent" />
-            <p className="font-display text-sm uppercase tracking-[0.3em] text-accent">
-              Partners
-            </p>
-          </div>
-          <h2
-            id="sponsors-heading"
-            className="mb-4 text-balance font-display text-3xl lowercase tracking-[0.15em] text-primary sm:text-4xl"
-          >
-            our sponsors
-          </h2>
-          <p className="text-muted-foreground">
+        <SectionHeading eyebrow="Partners" title="our sponsors" index="04 / 05" description={<>
             Sponsors will be announced soon. Interested in sponsoring?{" "}
             <a
               href="#contacts"
@@ -73,34 +62,30 @@ export function Sponsors() {
             >
               Talk to our External Relations team
             </a>
-          </p>
-        </div>
+          </>} />
 
         <div className="flex flex-col gap-16">
-          {tiers.map((tier) => {
+          {tiers.map((tier, tierIndex) => {
             const s = sizeMap[tier.size];
             return (
-              <div key={tier.name} className="flex flex-col items-center gap-6">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className="h-px w-8 bg-border sm:w-12" aria-hidden="true" />
-                    <h3 className="font-display text-lg lowercase tracking-[0.2em] text-primary sm:text-xl">
+              <Reveal key={tier.name} delay={Math.min(tierIndex * 70, 210)}>
+                <div className="group border-t border-border pt-7 transition-colors hover:border-accent/40">
+                  <div className="mb-8 grid gap-3 md:grid-cols-[160px_90px_1fr] md:items-start md:gap-6">
+                    <h3 className={`font-display lowercase tracking-[0.15em] text-primary ${tier.name === "main" ? "text-3xl sm:text-4xl" : "text-2xl"}`}>
                       {tier.name}
                     </h3>
                     <span className="font-display text-xs tracking-[0.15em] text-accent">
                       {tier.price}
                     </span>
-                    <div className="h-px w-8 bg-border sm:w-12" aria-hidden="true" />
-                  </div>
-                  <p className="max-w-md text-balance text-center text-sm text-muted-foreground">
+                  <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
                     {tier.perks}
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center justify-center gap-4">
+                <div className="flex flex-wrap gap-4">
                   {Array.from({ length: tier.slots }).map((_, i) => (
                     <div
                       key={i}
-                      className={`${s.box} flex flex-col items-center justify-center gap-2 border border-dashed border-border bg-card/50 transition-colors hover:border-accent/30`}
+                      className={`${s.box} flex flex-col items-center justify-center gap-2 bg-card/50 transition-[border-color,transform,background-color] duration-200 hover:-translate-y-1 hover:border-accent/50 hover:bg-card ${tier.name === "main" ? "border border-accent/30" : "border border-dashed border-border"}`}
                     >
                       <PixelCross
                         className={`${s.icon} text-muted-foreground/40`}
@@ -113,8 +98,8 @@ export function Sponsors() {
                       </span>
                     </div>
                   ))}
-                </div>
-              </div>
+                </div></div>
+              </Reveal>
             );
           })}
         </div>

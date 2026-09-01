@@ -48,6 +48,8 @@ jobs:
 
       - name: Build
         run: pnpm build
+        env:
+          NEXT_PUBLIC_SCRIPT_URL: ${{ vars.NEXT_PUBLIC_SCRIPT_URL }}
 
       - name: Upload static export
         uses: actions/upload-artifact@v7

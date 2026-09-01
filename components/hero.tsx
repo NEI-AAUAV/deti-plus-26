@@ -1,54 +1,10 @@
+import Link from "next/link";
+
 export function Hero() {
-  return (
-    <section
-      id="about"
-      aria-labelledby="hero-heading"
-      className="relative flex min-h-screen flex-col items-start justify-center overflow-hidden px-6 pt-20 pb-20 md:px-12 lg:px-20"
-    >
-      <div className="relative z-10 flex w-full max-w-5xl flex-col items-start gap-8">
-        <div className="flex items-center gap-3">
-          <span className="font-display text-5xl lowercase tracking-wide text-primary sm:text-6xl">
-            deti
-          </span>
-          <span className="font-display text-5xl text-accent sm:text-6xl">
-            +
-          </span>
-          <div className="ml-4 flex gap-1" aria-hidden="true">
-            <div className="h-8 w-8 bg-primary sm:h-10 sm:w-10" />
-            <div className="h-8 w-8 bg-accent sm:h-10 sm:w-10" />
-          </div>
-        </div>
-
-        <h1
-          id="hero-heading"
-          className="text-balance font-display text-6xl lowercase leading-[0.95] text-primary sm:text-8xl md:text-9xl lg:text-[10rem] xl:text-[12rem]"
-        >
-          connecting students with the future
-        </h1>
-
-        <p className="font-display text-xl lowercase text-accent sm:text-2xl md:text-3xl">
-          dynamic company fair 2026
-        </p>
-
-        <p className="max-w-lg text-base leading-relaxed text-muted-foreground md:text-lg">
-          Born from the collaboration of DETI&apos;s student associations, DETI+ aims to strengthen the connection between students and the corporate world. Over three days, you will have the opportunity to directly contact leading engineering, technology, and innovation companies, explore internships and job offers, and bridge the gap between academic training and the job market.
-        </p>
-
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-10">
-          <div className="flex items-center gap-4">
-            <div className="h-4 w-4 bg-accent sm:h-5 sm:w-5" aria-hidden="true" />
-            <span className="font-display text-lg uppercase tracking-widest text-primary sm:text-xl">
-              May 19 &ndash; 21, 2026
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="h-4 w-4 bg-accent sm:h-5 sm:w-5" aria-hidden="true" />
-            <span className="font-display text-lg uppercase tracking-widest text-primary sm:text-xl">
-              DETI, University of Aveiro
-            </span>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
+  return <section id="about" aria-labelledby="hero-heading" className="relative flex min-h-screen items-center overflow-hidden px-6 pb-20 pt-28 md:px-12 lg:px-20">
+    <div className="relative z-10 mx-auto grid w-full max-w-7xl items-end gap-12 lg:grid-cols-[1.2fr_0.72fr] lg:gap-16 xl:gap-24">
+      <div><div className="mb-8 flex items-center gap-3"><span className="font-display text-5xl lowercase tracking-wide text-primary sm:text-6xl">deti</span><span className="font-display text-5xl text-accent sm:text-6xl">+</span><div className="ml-3 flex gap-1" aria-hidden="true"><div className="h-8 w-8 bg-primary sm:h-10 sm:w-10" /><div className="h-8 w-8 bg-accent sm:h-10 sm:w-10" /></div></div><h1 id="hero-heading" className="max-w-[8ch] text-balance font-display text-6xl lowercase leading-[0.86] text-primary sm:text-8xl md:text-9xl lg:text-[8rem] xl:text-[9.5rem]">connecting students with the future</h1></div>
+      <div className="max-w-xl lg:pb-3"><p className="font-display text-xl lowercase text-accent sm:text-2xl md:text-3xl">dynamic company fair 2026</p><p className="mt-6 text-base leading-[1.8] text-muted-foreground md:text-lg">Born from the collaboration of DETI&apos;s student associations, DETI+ aims to strengthen the connection between students and the corporate world. Over three days, you will have the opportunity to directly contact leading engineering, technology, and innovation companies, explore internships and job offers, and bridge the gap between academic training and the job market.</p><Link href="/registration/" className="group mt-8 inline-flex items-center gap-6 border-2 border-accent bg-accent px-8 py-4 font-display text-lg uppercase tracking-widest text-background transition-colors hover:bg-transparent hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background">Register now <span className="transition-transform duration-200 group-hover:translate-x-1.5">→</span></Link><div className="mt-8 flex flex-col gap-4"><div className="flex items-center gap-4"><div className="h-3 w-3 bg-accent sm:h-4 sm:w-4" aria-hidden="true" /><span className="font-display text-base uppercase tracking-widest text-primary sm:text-lg">May 19 &ndash; 21, 2026</span></div><div className="flex items-center gap-4"><div className="h-3 w-3 bg-accent sm:h-4 sm:w-4" aria-hidden="true" /><span className="font-display text-base uppercase tracking-widest text-primary sm:text-lg">DETI, University of Aveiro</span></div></div></div>
+    </div>
+  </section>;
 }

@@ -12,8 +12,14 @@ export default function Page() {
   return (
     <>
       <BackgroundDecorations />
+
       <Navbar />
-      <main id="main" tabIndex={-1} className="relative z-10">
+
+      <main
+        id="main"
+        tabIndex={-1}
+        className="relative z-10 overflow-x-clip"
+      >
         <Hero />
         <Countdown />
         <Associations />
@@ -21,6 +27,7 @@ export default function Page() {
         <Sponsors />
         <Contacts />
       </main>
+
       <Footer />
     </>
   );
