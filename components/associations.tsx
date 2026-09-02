@@ -57,7 +57,7 @@ export function Associations() {
           <Reveal>
             <h2
               id="associations-heading"
-              className="max-w-[12ch] font-display text-[clamp(4rem,8vw,7.5rem)] font-normal lowercase leading-[0.84] tracking-[-0.03em] text-primary"
+              className="max-w-[12ch] font-display text-[clamp(4rem,8vw,7.5rem)] font-light lowercase leading-[0.84] tracking-[0.015em] text-primary"
             >
               three associations, one mission
             </h2>

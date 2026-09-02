@@ -42,7 +42,7 @@ export function WhyAttend() {
                 <span>Why DETI+</span>
               </div>
 
-              <h2 className="max-w-[9ch] font-display text-[clamp(4.4rem,9vw,9rem)] font-normal uppercase leading-[0.8] tracking-[-0.03em]">
+              <h2 className="max-w-[9ch] font-display text-[clamp(4.4rem,9vw,9rem)] font-light uppercase leading-[0.8] tracking-[0.015em]">
                 More than a company fair.
               </h2>
             </div>

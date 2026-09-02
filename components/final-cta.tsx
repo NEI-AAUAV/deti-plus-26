@@ -20,7 +20,7 @@ export function FinalCta() {
               <span>DETI+ 2026 · registrations</span>
             </div>
 
-            <h2 className="max-w-[10ch] font-display text-[clamp(4.8rem,11vw,11rem)] font-normal uppercase leading-[0.78] tracking-[-0.035em] text-primary">
+            <h2 className="max-w-[10ch] font-display text-[clamp(4.8rem,11vw,11rem)] font-light uppercase leading-[0.78] tracking-[0.015em] text-primary">
               Your next opportunity could start here.
             </h2>
 

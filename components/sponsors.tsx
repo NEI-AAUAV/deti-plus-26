@@ -69,7 +69,7 @@ export function Sponsors() {
           <Reveal>
             <h2
               id="sponsors-heading"
-              className="font-display text-[clamp(4rem,8vw,8rem)] font-normal lowercase leading-[0.84] tracking-[-0.03em] text-primary"
+              className="font-display text-[clamp(4rem,8vw,8rem)] font-light lowercase leading-[0.84] tracking-[0.015em] text-primary"
             >
               our sponsors
             </h2>

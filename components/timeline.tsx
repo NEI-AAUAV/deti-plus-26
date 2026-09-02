@@ -54,7 +54,7 @@ export function Timeline() {
           <Reveal>
             <h2
               id="timeline-heading"
-              className="font-display text-[clamp(4rem,8vw,7rem)] font-normal lowercase leading-[0.86] tracking-[-0.025em] text-primary"
+              className="font-display text-[clamp(4rem,8vw,7rem)] font-light lowercase leading-[0.86] tracking-[0.015em] text-primary"
             >
               event timeline
             </h2>

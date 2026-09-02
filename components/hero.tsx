@@ -26,7 +26,7 @@ export function Hero() {
 
             <h1
               id="hero-heading"
-              className="max-w-[8ch] text-balance font-display text-6xl font-normal lowercase leading-[0.86] tracking-[-0.025em] text-primary sm:text-8xl md:text-9xl lg:text-[8rem] xl:text-[9.5rem]"
+              className="max-w-[8ch] text-balance font-display text-6xl font-light lowercase leading-[0.86] tracking-[0.015em] text-primary sm:text-8xl md:text-9xl lg:text-[8rem] xl:text-[9.5rem]"
             >
               connecting students with the future
             </h1>
