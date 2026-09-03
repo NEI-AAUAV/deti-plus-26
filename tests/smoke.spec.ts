@@ -190,7 +190,7 @@ test(
         },
       )
       .toMatch(
-        /the event starts in|this edition has wrapped/,
+        /the event starts in|deti\+ 2026/,
       );
 
     const headingText =
@@ -226,7 +226,7 @@ test(
             "..",
           )
           .locator(
-            "span",
+            "strong",
           )
           .first();
 
@@ -582,7 +582,7 @@ test(
         "Event",
 
       startDate:
-        "2026-05-19T09:00:00+01:00",
+        "2026-09-29T17:00:00+01:00",
     });
   },
 );
@@ -655,13 +655,16 @@ async function readTimeUnit(
 ): Promise<string> {
   const unit =
     section
-      .getByText(
-        label,
-        {
-          exact:
-            true,
-        },
+      .locator(
+        "#countdown-heading",
       )
+      .locator(
+        "..",
+      )
+      .locator(
+        "..",
+      )
+      .getByText(label, { exact: true })
       .locator(
         "..",
       );
@@ -674,7 +677,7 @@ async function readTimeUnit(
     (
       await unit
         .locator(
-          "span",
+          "strong",
         )
         .first()
         .textContent()

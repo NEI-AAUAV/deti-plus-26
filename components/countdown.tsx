@@ -120,7 +120,7 @@ export function Countdown() {
 
               <div className="col-span-2 border-b border-r border-border p-5 sm:p-7">
                 <div className="mb-5 flex flex-wrap items-center justify-between gap-3 font-display text-[9px] uppercase tracking-[0.18em] text-muted-foreground sm:text-[10px]">
-                  <span>
+                  <span id="countdown-heading">
                     {time.isOver ? "DETI+ 2026" : "the event starts in"}
                   </span>
                   <span>29 Sep · 17:00</span>
@@ -128,7 +128,6 @@ export function Countdown() {
 
                 {time.isOver ? (
                   <p
-                    id="countdown-heading"
                     className="max-w-2xl text-balance leading-relaxed text-muted-foreground"
                     suppressHydrationWarning
                   >
@@ -139,7 +138,6 @@ export function Countdown() {
                   </p>
                 ) : (
                   <div
-                    id="countdown-heading"
                     className="grid grid-cols-2 gap-2 sm:grid-cols-4"
                     suppressHydrationWarning
                   >

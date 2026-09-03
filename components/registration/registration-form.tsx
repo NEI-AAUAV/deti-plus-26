@@ -767,6 +767,16 @@ export function RegistrationForm({
               </SelectTrigger>
 
               <SelectContent>
+                <SelectItem
+                  value={
+                    OTHER_COURSE
+                  }
+                >
+                  {
+                    OTHER_COURSE
+                  }
+                </SelectItem>
+
                 {COURSE_OPTIONS.map(
                   (
                     course,
@@ -786,15 +796,6 @@ export function RegistrationForm({
                   ),
                 )}
 
-                <SelectItem
-                  value={
-                    OTHER_COURSE
-                  }
-                >
-                  {
-                    OTHER_COURSE
-                  }
-                </SelectItem>
               </SelectContent>
             </Select>
 

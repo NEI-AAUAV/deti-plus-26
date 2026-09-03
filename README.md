@@ -2,7 +2,7 @@
 
 Landing site for **DETI+ 2026**, the company fair organized by DETI's student
 associations — NEEETA, NEI and NEECT — at the Universidade de Aveiro
-(May 19–21, 2026).
+(September 29–October 1, 2026).
 
 Built with Next.js (static export) and Tailwind CSS, published to GitHub Pages at
 <https://nei-aauav.github.io/deti-plus-26>.

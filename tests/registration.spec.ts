@@ -7,6 +7,9 @@ import {
 const SCRIPT_HOST =
   "https://script.google.com/**";
 
+const TEST_COURSE =
+  "Bachelor's Degree in Computer and Informatics Engineering";
+
 type ApiCall =
   Record<
     string,
@@ -190,12 +193,27 @@ async function fillValidForm(
     );
 
   await page
-    .getByLabel(
-      /course/i,
+    .getByRole(
+      "combobox",
+      {
+        name:
+          /course/i,
+      },
     )
-    .fill(
-      "Computer Engineering",
-    );
+    .click();
+
+  await page
+    .getByRole(
+      "option",
+      {
+        name:
+          TEST_COURSE,
+
+        exact:
+          true,
+      },
+    )
+    .click();
 
   await page
     .getByRole(
@@ -347,7 +365,7 @@ test.describe(
             "ana@ua.pt",
 
           course:
-            "Computer Engineering",
+            TEST_COURSE,
 
           year:
             "3",
@@ -427,8 +445,31 @@ test.describe(
           );
 
         await page
-          .getByLabel(
-            /course/i,
+          .getByRole(
+            "combobox",
+            {
+              name:
+                /course/i,
+            },
+          )
+          .click();
+
+        await page
+          .getByRole(
+            "option",
+            {
+              name:
+                "Other",
+
+              exact:
+                true,
+            },
+          )
+          .click();
+
+        await page
+          .getByPlaceholder(
+            "Specify your course",
           )
           .fill(
             "  Computer Engineering  ",
